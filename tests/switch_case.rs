@@ -168,6 +168,35 @@ mod test {
     #[test_context(TestContext)]
     #[serial]
     #[tokio::test]
+    async fn should_process_partition_concurrent_shots(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        env::set_var("OUTBOX_QUERY_LIMIT", "30");
+
+        let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
+        for _ in 0..10 {
+            DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
+        }
+        for _ in 0..10 {
+            DefaultData::create_default_http_outbox_success(ctx).await;
+        }
+
+        HttpGatewayMock::default_mock(ctx).await;
+
+        let _ = tokio::join!(OutboxProcessor::run(&ctx.app_state), OutboxProcessor::run(&ctx.app_state),);
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(21, stored_outboxes.len());
+
+        let outboxes_processed = DefaultData::find_all_outboxes_processed(ctx).await;
+        assert_eq!(11, outboxes_processed.len());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
     async fn should_process_partition_with_two_shots(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 

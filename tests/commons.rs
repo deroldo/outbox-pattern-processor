@@ -258,6 +258,16 @@ impl DefaultData {
         sqlx::query_as(sql).fetch_all(&ctx.app_state.postgres_pool).await.unwrap()
     }
 
+    pub async fn find_all_outboxes_processed(ctx: &mut TestContext) -> Vec<Outbox> {
+        let sql = r#"
+        select *
+        from outbox
+        where processed_at is not null
+        "#;
+
+        sqlx::query_as(sql).fetch_all(&ctx.app_state.postgres_pool).await.unwrap()
+    }
+
     pub async fn clear(ctx: &mut TestContext) -> Vec<Outbox> {
         let sql = r#"
         delete from outbox
