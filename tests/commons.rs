@@ -41,8 +41,6 @@ impl AsyncTestContext for TestContext {
         let queue_url = Infrastructure::init_sqs(&app_state).await.queue_url.unwrap();
         let topic_arn = Infrastructure::init_sns(&app_state).await.topic_arn.unwrap();
 
-        sqlx::migrate!("./database/migrations").run(&app_state.postgres_pool).await.unwrap();
-
         Self {
             app_state,
             mock_server,
@@ -280,27 +278,38 @@ impl DefaultData {
 pub struct HttpGatewayMock;
 
 impl HttpGatewayMock {
-    pub async fn default_mock(ctx: &mut TestContext) {
-        Self::mock(ctx, "POST", None, None).await;
+    pub async fn default_mock(
+        ctx: &mut TestContext,
+        outbox: &Outbox,
+    ) {
+        Self::mock(ctx, outbox, "POST", None, None).await;
     }
 
-    pub async fn mock_put(ctx: &mut TestContext) {
-        Self::mock(ctx, "PUT", None, None).await;
+    pub async fn mock_put(
+        ctx: &mut TestContext,
+        outbox: &Outbox,
+    ) {
+        Self::mock(ctx, outbox, "PUT", None, None).await;
     }
 
-    pub async fn mock_patch(ctx: &mut TestContext) {
-        Self::mock(ctx, "PATCH", None, None).await;
+    pub async fn mock_patch(
+        ctx: &mut TestContext,
+        outbox: &Outbox,
+    ) {
+        Self::mock(ctx, outbox, "PATCH", None, None).await;
     }
 
     pub async fn mock_with_headers(
         ctx: &mut TestContext,
+        outbox: &Outbox,
         headers_map: HashMap<String, String>,
     ) {
-        Self::mock(ctx, "POST", None, Some(headers_map)).await;
+        Self::mock(ctx, outbox, "POST", None, Some(headers_map)).await;
     }
 
     async fn mock(
         ctx: &mut TestContext,
+        outbox: &Outbox,
         method_name: &str,
         payload: Option<Value>,
         headers_map: Option<HashMap<String, String>>,
@@ -316,9 +325,15 @@ impl HttpGatewayMock {
             },
         }
 
-        mock_builder.and(path("/success")).respond_with(ResponseTemplate::new(200)).mount(&ctx.mock_server).await;
+        mock_builder
+            .and(header("x-idempotent-key", outbox.idempotent_key.to_string()))
+            .and(path("/success"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&ctx.mock_server)
+            .await;
 
         Mock::given(method(method_name))
+            .and(header("x-idempotent-key", outbox.idempotent_key.to_string()))
             .and(path("/failed"))
             .respond_with(ResponseTemplate::new(500))
             .mount(&ctx.mock_server)

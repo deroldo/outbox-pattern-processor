@@ -1,5 +1,5 @@
 # Build Stage
-FROM rust:1.75-alpine AS builder
+FROM rust:1.80.1-alpine AS builder
 
 RUN apk add --no-cache musl-dev
 
@@ -14,7 +14,7 @@ COPY src ./src
 RUN touch -a -m ./src/bin/api/main.rs && cargo build --release --locked
 
 # Bundle Stage
-FROM alpine:3.18
+FROM alpine:3.20.2
 
 ARG BUILD_NUMBER
 ENV DD_VERSION="${BUILD_NUMBER}"

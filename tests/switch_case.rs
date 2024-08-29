@@ -25,7 +25,9 @@ mod test {
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -56,7 +58,9 @@ mod test {
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
         let _ = OutboxProcessor::run(&ctx.app_state).await;
@@ -88,7 +92,9 @@ mod test {
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -118,7 +124,8 @@ mod test {
         let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -146,7 +153,9 @@ mod test {
         let outbox_2 = DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -174,14 +183,14 @@ mod test {
         env::set_var("OUTBOX_QUERY_LIMIT", "30");
 
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
         for _ in 0..10 {
             DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
         }
         for _ in 0..10 {
-            DefaultData::create_default_http_outbox_success(ctx).await;
+            let other_outbox = DefaultData::create_default_http_outbox_success(ctx).await;
+            HttpGatewayMock::default_mock(ctx, &other_outbox).await;
         }
-
-        HttpGatewayMock::default_mock(ctx).await;
 
         let _ = tokio::join!(OutboxProcessor::run(&ctx.app_state), OutboxProcessor::run(&ctx.app_state),);
 
@@ -206,7 +215,9 @@ mod test {
         let outbox_2 = DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
         let _ = OutboxProcessor::run(&ctx.app_state).await;
@@ -234,9 +245,9 @@ mod test {
 
         env::set_var("OUTBOX_QUERY_LIMIT", "2");
 
-        DefaultData::create_http_outbox_success(ctx, "PUT").await;
+        let outbox = DefaultData::create_http_outbox_success(ctx, "PUT").await;
 
-        HttpGatewayMock::mock_put(ctx).await;
+        HttpGatewayMock::mock_put(ctx, &outbox).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -257,9 +268,9 @@ mod test {
 
         env::set_var("OUTBOX_QUERY_LIMIT", "2");
 
-        DefaultData::create_http_outbox_success(ctx, "PATCH").await;
+        let outbox = DefaultData::create_http_outbox_success(ctx, "PATCH").await;
 
-        HttpGatewayMock::mock_patch(ctx).await;
+        HttpGatewayMock::mock_patch(ctx, &outbox).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -283,7 +294,7 @@ mod test {
         let env_value = "my-env-value";
         env::set_var("X_ENV_HEADER_VALUE", env_value);
 
-        DefaultData::create_http_outbox_with_headers(
+        let outbox = DefaultData::create_http_outbox_with_headers(
             ctx,
             HashMap::from([
                 ("X-ENV-HEADER".to_string(), "{{X_ENV_HEADER_VALUE}}".to_string()),
@@ -295,6 +306,7 @@ mod test {
 
         HttpGatewayMock::mock_with_headers(
             ctx,
+            &outbox,
             HashMap::from([
                 ("X-ENV-HEADER".to_string(), env_value.to_string()),
                 ("X-HTTP-HEADER".to_string(), "my-http-value".to_string()),
@@ -372,7 +384,7 @@ mod test {
 
         env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
-        DefaultData::create_outbox(
+        let outbox = DefaultData::create_outbox(
             ctx,
             None,
             None,
@@ -390,7 +402,7 @@ mod test {
         )
         .await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -411,7 +423,7 @@ mod test {
 
         env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
-        DefaultData::create_outbox(
+        let outbox = DefaultData::create_outbox(
             ctx,
             None,
             None,
@@ -429,7 +441,7 @@ mod test {
         )
         .await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -450,7 +462,7 @@ mod test {
 
         env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
-        DefaultData::create_outbox(
+        let outbox = DefaultData::create_outbox(
             ctx,
             None,
             None,
@@ -470,7 +482,7 @@ mod test {
         )
         .await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 
@@ -491,7 +503,7 @@ mod test {
 
         env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
-        DefaultData::create_outbox(
+        let outbox = DefaultData::create_outbox(
             ctx,
             None,
             None,
@@ -511,7 +523,7 @@ mod test {
         )
         .await;
 
-        HttpGatewayMock::default_mock(ctx).await;
+        HttpGatewayMock::default_mock(ctx, &outbox).await;
 
         let _ = OutboxProcessor::run(&ctx.app_state).await;
 

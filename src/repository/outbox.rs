@@ -11,30 +11,33 @@ impl OutboxRepository {
         limit: i32,
     ) -> Result<Vec<Outbox>, AppError> {
         let sql = r#"
-        with ranked as (
+        with locked as (
+            update outbox o1
+            set processing_until = now() + ('1 minutes')::interval
+            from (
+                select partition_key
+                from outbox o3
+                where o3.processed_at is null and o3.processing_until < now()
+                group by o3.partition_key
+                order by min(o3.created_at)
+                limit $1
+            ) as o2
+            where o1.partition_key = o2.partition_key
+                and o1.processing_until < now()
+            returning o1.idempotent_key
+        ),
+        to_process as (
             select
-                row_number() over (partition by partition_key order by created_at asc) as rnk,
-                *
+                outbox.idempotent_key,
+                row_number() over (partition by outbox.partition_key order by outbox.created_at asc) as rnk
             from outbox
-            where processed_at is null and processing_until < now()
-            order by created_at
-            limit $1
-        ),
-        processing as (
-            update outbox o
-            set processing_until = now() + ('1 minutes')::interval
-            from ranked r
-            where r.rnk = 1 and r.idempotent_key = o.idempotent_key and o.processing_until < now()
-            returning o.*
-        ),
-        locked as (
-            update outbox o
-            set processing_until = now() + ('1 minutes')::interval
-            from processing p
-            where p.partition_key = o.partition_key and o.processed_at is null and o.processing_until < now()
-            returning o.idempotent_key
+            inner join locked on locked.idempotent_key = outbox.idempotent_key
+            where outbox.processed_at is null
         )
-        select * from processing order by created_at;
+        select outbox.*
+        from outbox
+        inner join to_process on to_process.idempotent_key = outbox.idempotent_key
+        where to_process.rnk = 1;
         "#;
 
         sqlx::query_as(sql)
