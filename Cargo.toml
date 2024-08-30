@@ -1,3 +1,7 @@
 [workspace]
 members = ["lib", "worker"]
 resolver = "2"
+
+[profile.release]
+incremental = true
+strip = "debuginfo"

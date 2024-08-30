@@ -37,7 +37,3 @@ sqlx = { version = "0.8.1", features = ["runtime-tokio-rustls", "postgres", "chr
 
 serde = { version = "1.0.209", features = ["derive"] }
 serde_json = { version = "1.0.127", features = ["preserve_order"] }
-
-[profile.release]
-incremental = true
-strip = "debuginfo"

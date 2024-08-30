@@ -42,7 +42,3 @@ rand = { version = "0.8.5" }
 serial_test = { version = "3.1.1" }
 test-context = { version = "0.3.0" }
 wiremock = { version = "0.6.1" }
-
-[profile.release]
-incremental = true
-strip = "debuginfo"
