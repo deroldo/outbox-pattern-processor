@@ -22,15 +22,3 @@ services:
       - "127.0.0.1:4566:4566"
     environment:
       - SERVICES=sns,sqs
-
-#  app:
-#    build: .
-#    environment:
-#      DB_HOST: postgres
-#      DB_USER: local
-#      DB_PASS: local
-#      DB_NAME: local
-#      AWS_ACCESS_KEY_ID: outbox-pattern-processor
-#      AWS_SECRET_ACCESS_KEY: outbox-pattern-processor
-#      LOCAL_ENDPOINT: http://localstack:4566
-#      LOCAL_REGION: us-east-1
