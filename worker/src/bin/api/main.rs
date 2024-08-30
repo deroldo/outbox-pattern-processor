@@ -2,12 +2,11 @@ use outbox_pattern_processor::infra::environment::Environment;
 use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
 use outbox_pattern_processor_worker::routes::Routes;
 use outbox_pattern_processor_worker::state::AppState;
-use std::cmp::Ordering;
 use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tracing::log::{error, info};
+use tracing::log::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -31,8 +30,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = AppState::new().await?;
 
+    let outbox_processor_resources = OutboxProcessorResources {
+        postgres_pool: app_state.postgres_pool.clone(),
+        sqs_client: app_state.sqs_client.clone(),
+        sns_client: app_state.sns_client.clone(),
+        http_gateway: app_state.http_gateway.clone(),
+    };
+
     tokio::spawn(init_http_server(app_state.clone(), wait_group.add(1)));
-    tokio::spawn(init_outbox_processor(app_state.clone(), wait_group.add(1)));
+    tokio::spawn(OutboxProcessor::init(outbox_processor_resources, wait_group.add(1)));
 
     wait_group.wait();
 
@@ -58,58 +64,6 @@ async fn init_http_server(
     wait_group.done();
 
     info!("Http server stopped!");
-}
-
-async fn init_outbox_processor(
-    app_state: AppState,
-    wait_group: WaitGroup,
-) {
-    info!("Starting outbox processor...");
-    let mut test_processor_executions = Environment::i32("TEST_PROCESSOR_EXECUTIONS", -1);
-
-    let outbox_processor_resources = OutboxProcessorResources {
-        postgres_pool: app_state.postgres_pool,
-        sqs_client: app_state.sqs_client,
-        sns_client: app_state.sns_client,
-        http_gateway: app_state.http_gateway,
-    };
-
-    info!("Running outbox processor...");
-    loop {
-        tokio::select! {
-            Ok(_) = OutboxProcessor::run(&outbox_processor_resources) => {
-                match test_processor_executions.cmp(&0) {
-                    Ordering::Greater => {
-                        test_processor_executions -= 1;
-                    },
-                    Ordering::Equal => {
-                        break;
-                    }
-                    Ordering::Less => {},
-                }
-            }
-            Err(error) = OutboxProcessor::run(&outbox_processor_resources) => {
-                error!("Outbox processor failed with error: {}", error.to_string());
-                match test_processor_executions.cmp(&0) {
-                    Ordering::Greater => {
-                        test_processor_executions -= 1;
-                    },
-                    Ordering::Equal => {
-                        break;
-                    }
-                    Ordering::Less => {},
-                }
-
-            }
-            _ = shutdown_signal("Stopping outbox processor...") => {
-                break;
-            }
-        }
-    }
-
-    wait_group.done();
-
-    info!("Outbox processor stopped!");
 }
 
 async fn shutdown_signal(message: &str) {

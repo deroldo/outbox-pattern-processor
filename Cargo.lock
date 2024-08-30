@@ -1782,6 +1782,7 @@ dependencies = [
  "tracing-serde",
  "tracing-subscriber",
  "uuid",
+ "wg",
  "wiremock",
 ]
 

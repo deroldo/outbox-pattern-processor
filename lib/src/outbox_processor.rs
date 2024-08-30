@@ -9,6 +9,10 @@ use crate::service::http_notification_service::HttpNotificationService;
 use crate::service::sns_notification_service::SqsNotificationService;
 use crate::service::sqs_notification_service::SnsNotificationService;
 use sqlx::{Pool, Postgres};
+use std::time::Duration;
+use tokio::signal;
+use tracing::log::{error, info};
+use wg::WaitGroup;
 
 #[derive(Clone)]
 pub struct OutboxProcessorResources {
@@ -21,6 +25,32 @@ pub struct OutboxProcessorResources {
 pub struct OutboxProcessor;
 
 impl OutboxProcessor {
+    pub async fn init(
+        outbox_processor_resources: OutboxProcessorResources,
+        wait_group: WaitGroup,
+    ) {
+        info!("Starting outbox processor...");
+
+        info!("Running outbox processor...");
+        loop {
+            tokio::select! {
+                result = OutboxProcessor::run(&outbox_processor_resources) => {
+                    if let Err(error) = result {
+                        error!("Outbox processor failed with error: {}", error.to_string());
+                    }
+                    tokio::time::sleep(Duration::from_secs(Environment::u64("OUTBOX_QUERY_DELAY_IN_SECONDS", 5))).await;
+                }
+                _ = Self::shutdown_signal("Stopping outbox processor...") => {
+                    break;
+                }
+            }
+        }
+
+        wait_group.done();
+
+        info!("Outbox processor stopped!");
+    }
+
     pub async fn run(resources: &OutboxProcessorResources) -> Result<(), AppError> {
         let limit = Environment::i32("OUTBOX_QUERY_LIMIT", 50);
 
@@ -45,7 +75,7 @@ impl OutboxProcessor {
         if Environment::boolean("DELETE_PROCESSED", false) {
             OutboxRepository::delete_processed(resources, &successfully_outboxes).await?;
         } else {
-            OutboxRepository::mask_as_processed(resources, &successfully_outboxes).await?;
+            OutboxRepository::mark_as_processed(resources, &successfully_outboxes).await?;
         }
 
         Ok(())
@@ -71,5 +101,25 @@ impl OutboxProcessor {
         }
 
         grouped_outboxes
+    }
+
+    async fn shutdown_signal(message: &str) {
+        let ctrl_c = async {
+            signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        };
+
+        let terminate = async {
+            signal::unix::signal(signal::unix::SignalKind::terminate())
+                .expect("Failed to install signal handler")
+                .recv()
+                .await;
+        };
+
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+
+        info!("{message}");
     }
 }

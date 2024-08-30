@@ -14,6 +14,9 @@ keywords = ["outbox", "outbox-pattern", "outbox-table", "outbox-event"]
 categories = ["web-programming"]
 
 [dependencies]
+tokio = { version = "1.40.0", features = ["full"] }
+wg = { version = "0.9.1" }
+
 tracing = { version = "0.1.40" }
 tracing-serde = { version = "0.1.3" }
 tracing-appender = { version = "0.2.3" }
@@ -39,7 +42,6 @@ rand = { version = "0.8.5" }
 serial_test = { version = "3.1.1" }
 test-context = { version = "0.3.0" }
 wiremock = { version = "0.6.1" }
-tokio = { version = "1.40.0", features = ["full"] }
 
 [profile.release]
 incremental = true
