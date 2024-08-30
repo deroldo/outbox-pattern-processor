@@ -8,10 +8,8 @@ RUN USER=root cargo new app
 WORKDIR /usr/app
 
 COPY Cargo.toml Cargo.lock ./
-RUN cargo build --release --locked
-
-COPY src ./src
-RUN touch -a -m ./src/bin/api/main.rs && cargo build --release --locked
+COPY lib ./src
+RUN touch -a -m ./worker/src/main.rs && cargo build --release --locked
 
 # Bundle Stage
 FROM alpine:3.20.2

@@ -1,13 +1,13 @@
 use crate::domain::outbox::Outbox;
 use crate::infra::error::AppError;
-use crate::state::AppState;
+use crate::outbox_processor::OutboxProcessorResources;
 use uuid::Uuid;
 
 pub struct OutboxRepository;
 
 impl OutboxRepository {
     pub async fn list(
-        app_state: &AppState,
+        resources: &OutboxProcessorResources,
         limit: i32,
     ) -> Result<Vec<Outbox>, AppError> {
         let sql = r#"
@@ -42,13 +42,13 @@ impl OutboxRepository {
 
         sqlx::query_as(sql)
             .bind(limit)
-            .fetch_all(&app_state.postgres_pool)
+            .fetch_all(&resources.postgres_pool)
             .await
             .map_err(|error| AppError::new(&error.to_string(), "Failed to list outboxes"))
     }
 
     pub async fn mask_as_processed(
-        app_state: &AppState,
+        resources: &OutboxProcessorResources,
         outboxes: &[Outbox],
     ) -> Result<(), AppError> {
         let sql = r#"
@@ -68,7 +68,7 @@ impl OutboxRepository {
 
         sqlx::query(sql)
             .bind(outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>())
-            .execute(&app_state.postgres_pool)
+            .execute(&resources.postgres_pool)
             .await
             .map_err(|error| AppError::new(&error.to_string(), "Failed to mark outboxes as processed"))?;
 
@@ -76,7 +76,7 @@ impl OutboxRepository {
     }
 
     pub async fn delete_processed(
-        app_state: &AppState,
+        resources: &OutboxProcessorResources,
         outboxes: &[Outbox],
     ) -> Result<(), AppError> {
         let sql = r#"
@@ -95,7 +95,7 @@ impl OutboxRepository {
 
         sqlx::query(sql)
             .bind(outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>())
-            .execute(&app_state.postgres_pool)
+            .execute(&resources.postgres_pool)
             .await
             .map_err(|error| AppError::new(&error.to_string(), "Failed to delete processed outboxes"))?;
 

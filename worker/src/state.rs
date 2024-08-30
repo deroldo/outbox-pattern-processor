@@ -1,9 +1,9 @@
-use crate::infra::aws::{SnsClient, SqsClient};
-use crate::infra::database::Database;
-use crate::infra::environment::Environment;
-use crate::infra::error::AppError;
-use crate::infra::http_gateway::HttpGateway;
 use aws_config::BehaviorVersion;
+use outbox_pattern_processor::infra::aws::{SnsClient, SqsClient};
+use outbox_pattern_processor::infra::database::Database;
+use outbox_pattern_processor::infra::environment::Environment;
+use outbox_pattern_processor::infra::error::AppError;
+use outbox_pattern_processor::infra::http_gateway::HttpGateway;
 use sqlx::{Pool, Postgres, Transaction};
 
 #[derive(Clone)]

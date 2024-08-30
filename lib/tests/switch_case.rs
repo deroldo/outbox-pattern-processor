@@ -29,7 +29,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -62,8 +62,8 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -96,7 +96,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -127,7 +127,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_1).await;
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(2, stored_outboxes.len());
@@ -157,7 +157,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -192,7 +192,7 @@ mod test {
             HttpGatewayMock::default_mock(ctx, &other_outbox).await;
         }
 
-        let _ = tokio::join!(OutboxProcessor::run(&ctx.app_state), OutboxProcessor::run(&ctx.app_state),);
+        let _ = tokio::join!(OutboxProcessor::run(&ctx.resources), OutboxProcessor::run(&ctx.resources),);
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(21, stored_outboxes.len());
@@ -219,8 +219,8 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -249,7 +249,7 @@ mod test {
 
         HttpGatewayMock::mock_put(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -272,7 +272,7 @@ mod test {
 
         HttpGatewayMock::mock_patch(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -315,7 +315,7 @@ mod test {
         )
         .await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -337,7 +337,7 @@ mod test {
         let outbox_1 = DefaultData::create_default_sns_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_sns_outbox_success(ctx).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(2, stored_outboxes.len());
@@ -362,7 +362,7 @@ mod test {
         let outbox_1 = DefaultData::create_default_sqs_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_sqs_outbox_success(ctx).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(2, stored_outboxes.len());
@@ -404,7 +404,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -443,7 +443,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -484,7 +484,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -525,7 +525,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.app_state).await;
+        let _ = OutboxProcessor::run(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());

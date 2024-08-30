@@ -3,7 +3,7 @@ use crate::domain::notification::NotificationResult;
 use crate::domain::outbox::GroupedOutboxed;
 use crate::infra::environment::Environment;
 use crate::infra::error::AppError;
-use crate::state::AppState;
+use crate::outbox_processor::OutboxProcessorResources;
 use regex::Regex;
 use tracing::log::error;
 
@@ -11,7 +11,7 @@ pub struct HttpNotificationService;
 
 impl HttpNotificationService {
     pub async fn send(
-        app_state: &AppState,
+        resources: &OutboxProcessorResources,
         outboxes: &GroupedOutboxed,
     ) -> Result<NotificationResult, AppError> {
         let mut notification_result = NotificationResult::default();
@@ -21,9 +21,9 @@ impl HttpNotificationService {
                 if let OutboxDestination::HttpDestination(http) = destination {
                     let method = http.method.unwrap_or("POST".to_string()).to_uppercase();
                     let mut request = match method.as_str() {
-                        "PUT" => app_state.http_gateway.client.put(&http.url),
-                        "PATCH" => app_state.http_gateway.client.patch(&http.url),
-                        _ => app_state.http_gateway.client.post(&http.url),
+                        "PUT" => resources.http_gateway.client.put(&http.url),
+                        "PATCH" => resources.http_gateway.client.patch(&http.url),
+                        _ => resources.http_gateway.client.post(&http.url),
                     };
 
                     if let Some(headers) = http.headers {

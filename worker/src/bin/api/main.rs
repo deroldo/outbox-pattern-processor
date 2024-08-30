@@ -1,8 +1,9 @@
 use outbox_pattern_processor::infra::environment::Environment;
-use outbox_pattern_processor::outbox_processor::OutboxProcessor;
-use outbox_pattern_processor::routes::Routes;
-use outbox_pattern_processor::state::AppState;
+use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
+use outbox_pattern_processor_worker::routes::Routes;
+use outbox_pattern_processor_worker::state::AppState;
 use std::cmp::Ordering;
+use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -15,6 +16,9 @@ use wg::WaitGroup;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
+
+    let rust_log = Environment::string("RUST_LOG", "INFO,sqlx::postgres::notice=WARN,sqlx::query=WARN");
+    env::set_var("RUST_LOG", rust_log);
 
     tracing_subscriber::registry()
         .with(EnvFilter::from_default_env())
@@ -63,10 +67,17 @@ async fn init_outbox_processor(
     info!("Starting outbox processor...");
     let mut test_processor_executions = Environment::i32("TEST_PROCESSOR_EXECUTIONS", -1);
 
+    let outbox_processor_resources = OutboxProcessorResources {
+        postgres_pool: app_state.postgres_pool,
+        sqs_client: app_state.sqs_client,
+        sns_client: app_state.sns_client,
+        http_gateway: app_state.http_gateway,
+    };
+
     info!("Running outbox processor...");
     loop {
         tokio::select! {
-            Ok(_) = OutboxProcessor::run(&app_state) => {
+            Ok(_) = OutboxProcessor::run(&outbox_processor_resources) => {
                 match test_processor_executions.cmp(&0) {
                     Ordering::Greater => {
                         test_processor_executions -= 1;
@@ -77,7 +88,7 @@ async fn init_outbox_processor(
                     Ordering::Less => {},
                 }
             }
-            Err(error) = OutboxProcessor::run(&app_state) => {
+            Err(error) = OutboxProcessor::run(&outbox_processor_resources) => {
                 error!("Outbox processor failed with error: {}", error.to_string());
                 match test_processor_executions.cmp(&0) {
                     Ordering::Greater => {

@@ -497,7 +497,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper 1.0.1",
  "tokio",
- "tower 0.4.13",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -548,7 +548,7 @@ dependencies = [
  "http 1.1.0",
  "opentelemetry 0.23.0",
  "pin-project-lite",
- "tower 0.4.13",
+ "tower",
  "tracing",
  "tracing-opentelemetry 0.24.0",
  "tracing-opentelemetry-instrumentation-sdk",
@@ -1387,7 +1387,7 @@ dependencies = [
  "pin-project-lite",
  "socket2",
  "tokio",
- "tower 0.4.13",
+ "tower",
  "tower-service",
  "tracing",
 ]
@@ -1766,9 +1766,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-sns",
  "aws-sdk-sqs",
- "axum",
- "axum-tracing-opentelemetry",
- "hyper 1.4.1",
  "rand",
  "regex",
  "reqwest",
@@ -1780,16 +1777,36 @@ dependencies = [
  "sqlx",
  "test-context",
  "tokio",
- "tokio-stream",
- "tower 0.5.0",
- "tower-http",
  "tracing",
  "tracing-appender",
  "tracing-serde",
  "tracing-subscriber",
  "uuid",
- "wg",
  "wiremock",
+]
+
+[[package]]
+name = "outbox-pattern-processor-worker"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-sns",
+ "aws-sdk-sqs",
+ "axum",
+ "axum-tracing-opentelemetry",
+ "hyper 1.4.1",
+ "outbox-pattern-processor",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-stream",
+ "tower-http",
+ "tracing",
+ "tracing-appender",
+ "tracing-serde",
+ "tracing-subscriber",
+ "wg",
 ]
 
 [[package]]
@@ -3131,9 +3148,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.39.3"
+version = "1.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9babc99b9923bfa4804bd74722ff02c0381021eafa4db9949217e3be8e84fff5"
+checksum = "e2b070231665d27ad9ec9b8df639893f46727666c6767db40317fbe920a5d998"
 dependencies = [
  "backtrace",
  "bytes",
@@ -3234,20 +3251,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "tower"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36b837f86b25d7c0d7988f00a54e74739be6477f2aac6201b8f429a7569991b7"
-dependencies = [
- "futures-core",
- "futures-util",
- "pin-project-lite",
- "sync_wrapper 0.1.2",
- "tower-layer",
- "tower-service",
 ]
 
 [[package]]

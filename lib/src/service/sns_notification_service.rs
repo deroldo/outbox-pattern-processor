@@ -1,7 +1,7 @@
 use crate::domain::notification::NotificationResult;
 use crate::domain::outbox::{GroupedOutboxed, Outbox};
 use crate::infra::error::AppError;
-use crate::state::AppState;
+use crate::outbox_processor::OutboxProcessorResources;
 use aws_sdk_sns::error::ProvideErrorMetadata;
 use aws_sdk_sns::types::{MessageAttributeValue, PublishBatchRequestEntry};
 use tracing::log::error;
@@ -10,7 +10,7 @@ pub struct SqsNotificationService;
 
 impl SqsNotificationService {
     pub async fn send(
-        app_state: &AppState,
+        resources: &OutboxProcessorResources,
         outboxes: &GroupedOutboxed,
     ) -> Result<NotificationResult, AppError> {
         let mut notification_result = NotificationResult::default();
@@ -67,7 +67,7 @@ impl SqsNotificationService {
                     entries.push(entry);
                 }
 
-                let publish_result = app_state
+                let publish_result = resources
                     .sns_client
                     .client
                     .publish_batch()

@@ -1,3 +1,4 @@
+use aws_config::BehaviorVersion;
 use aws_sdk_sns::operation::create_topic::CreateTopicOutput;
 use aws_sdk_sqs::operation::create_queue::CreateQueueOutput;
 use outbox_pattern_processor::domain::destination::http_destination::HttpDestination;
@@ -5,7 +6,10 @@ use outbox_pattern_processor::domain::destination::outbox_destination::OutboxDes
 use outbox_pattern_processor::domain::destination::sns_destination::SnsDestination;
 use outbox_pattern_processor::domain::destination::sqs_destination::SqsDestination;
 use outbox_pattern_processor::domain::outbox::Outbox;
-use outbox_pattern_processor::state::AppState;
+use outbox_pattern_processor::infra::aws::{SnsClient, SqsClient};
+use outbox_pattern_processor::infra::database::Database;
+use outbox_pattern_processor::infra::http_gateway::HttpGateway;
+use outbox_pattern_processor::outbox_processor::OutboxProcessorResources;
 use rand::Rng;
 use serde_json::{json, Value};
 use sqlx::types::Json;
@@ -19,7 +23,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[allow(dead_code)]
 pub struct TestContext {
-    pub app_state: AppState,
+    pub resources: OutboxProcessorResources,
     mock_server: MockServer,
     pub gateway_uri: String,
     pub queue_url: String,
@@ -35,14 +39,27 @@ impl AsyncTestContext for TestContext {
 
         let mock_server = Infrastructure::init_mock_server().await;
 
-        let app_state = AppState::new().await.unwrap();
+        let db_config = Database::from_env();
+        let postgres_pool = db_config.create_db_pool().await.unwrap();
+
+        let aws_config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+        let sqs_client = SqsClient::new(&aws_config).await;
+        let sns_client = SnsClient::new(&aws_config).await;
+        let http_gateway = HttpGateway::new(1000).unwrap();
+
+        let resources = OutboxProcessorResources {
+            postgres_pool,
+            sqs_client,
+            sns_client,
+            http_gateway,
+        };
 
         let gateway_uri = mock_server.uri();
-        let queue_url = Infrastructure::init_sqs(&app_state).await.queue_url.unwrap();
-        let topic_arn = Infrastructure::init_sns(&app_state).await.topic_arn.unwrap();
+        let queue_url = Infrastructure::init_sqs(&resources).await.queue_url.unwrap();
+        let topic_arn = Infrastructure::init_sns(&resources).await.topic_arn.unwrap();
 
         Self {
-            app_state,
+            resources,
             mock_server,
             gateway_uri,
             queue_url,
@@ -54,12 +71,12 @@ impl AsyncTestContext for TestContext {
 pub struct Infrastructure;
 
 impl Infrastructure {
-    async fn init_sqs(app_state: &AppState) -> CreateQueueOutput {
-        app_state.sqs_client.client.create_queue().queue_name("queue").send().await.unwrap()
+    async fn init_sqs(resources: &OutboxProcessorResources) -> CreateQueueOutput {
+        resources.sqs_client.client.create_queue().queue_name("queue").send().await.unwrap()
     }
 
-    async fn init_sns(app_state: &AppState) -> CreateTopicOutput {
-        app_state.sns_client.client.create_topic().name("topic").send().await.unwrap()
+    async fn init_sns(resources: &OutboxProcessorResources) -> CreateTopicOutput {
+        resources.sns_client.client.create_topic().name("topic").send().await.unwrap()
     }
 
     async fn init_mock_server() -> MockServer {
@@ -242,7 +259,7 @@ impl DefaultData {
             .bind(Json(destinations))
             .bind(headers.map(|it| Some(Json(it))))
             .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
-            .fetch_one(&ctx.app_state.postgres_pool)
+            .fetch_one(&ctx.resources.postgres_pool)
             .await
             .unwrap()
     }
@@ -253,7 +270,7 @@ impl DefaultData {
         from outbox
         "#;
 
-        sqlx::query_as(sql).fetch_all(&ctx.app_state.postgres_pool).await.unwrap()
+        sqlx::query_as(sql).fetch_all(&ctx.resources.postgres_pool).await.unwrap()
     }
 
     pub async fn find_all_outboxes_processed(ctx: &mut TestContext) -> Vec<Outbox> {
@@ -263,7 +280,7 @@ impl DefaultData {
         where processed_at is not null
         "#;
 
-        sqlx::query_as(sql).fetch_all(&ctx.app_state.postgres_pool).await.unwrap()
+        sqlx::query_as(sql).fetch_all(&ctx.resources.postgres_pool).await.unwrap()
     }
 
     pub async fn clear(ctx: &mut TestContext) -> Vec<Outbox> {
@@ -271,7 +288,7 @@ impl DefaultData {
         delete from outbox
         "#;
 
-        sqlx::query_as(sql).fetch_all(&ctx.app_state.postgres_pool).await.unwrap()
+        sqlx::query_as(sql).fetch_all(&ctx.resources.postgres_pool).await.unwrap()
     }
 }
 
