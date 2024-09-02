@@ -9,10 +9,9 @@ use crate::service::http_notification_service::HttpNotificationService;
 use crate::service::sns_notification_service::SqsNotificationService;
 use crate::service::sqs_notification_service::SnsNotificationService;
 use sqlx::{Pool, Postgres};
+use std::future::Future;
 use std::time::Duration;
-use tokio::signal;
 use tracing::log::{error, info};
-use wg::WaitGroup;
 
 #[derive(Clone)]
 pub struct OutboxProcessorResources {
@@ -27,9 +26,11 @@ pub struct OutboxProcessor;
 impl OutboxProcessor {
     pub async fn init(
         outbox_processor_resources: OutboxProcessorResources,
-        wait_group: WaitGroup,
+        signal: impl Future<Output = ()> + Sized,
     ) {
         info!("Starting outbox processor...");
+
+        let mut shutdown_signal = Box::pin(signal);
 
         info!("Running outbox processor...");
         loop {
@@ -40,13 +41,11 @@ impl OutboxProcessor {
                     }
                     tokio::time::sleep(Duration::from_secs(Environment::u64("OUTBOX_QUERY_DELAY_IN_SECONDS", 5))).await;
                 }
-                _ = Self::shutdown_signal("Stopping outbox processor...") => {
+                _ = &mut shutdown_signal => {
                     break;
                 }
             }
         }
-
-        wait_group.done();
 
         info!("Outbox processor stopped!");
     }
@@ -101,25 +100,5 @@ impl OutboxProcessor {
         }
 
         grouped_outboxes
-    }
-
-    async fn shutdown_signal(message: &str) {
-        let ctrl_c = async {
-            signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-        };
-
-        let terminate = async {
-            signal::unix::signal(signal::unix::SignalKind::terminate())
-                .expect("Failed to install signal handler")
-                .recv()
-                .await;
-        };
-
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = terminate => {},
-        }
-
-        info!("{message}");
     }
 }

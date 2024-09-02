@@ -30,15 +30,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = AppState::new().await?;
 
-    let outbox_processor_resources = OutboxProcessorResources {
-        postgres_pool: app_state.postgres_pool.clone(),
-        sqs_client: app_state.sqs_client.clone(),
-        sns_client: app_state.sns_client.clone(),
-        http_gateway: app_state.http_gateway.clone(),
-    };
-
     tokio::spawn(init_http_server(app_state.clone(), wait_group.add(1)));
-    tokio::spawn(OutboxProcessor::init(outbox_processor_resources, wait_group.add(1)));
+    tokio::spawn(init_outbox(app_state.clone(), wait_group.add(1)));
 
     wait_group.wait();
 
@@ -64,6 +57,22 @@ async fn init_http_server(
     wait_group.done();
 
     info!("Http server stopped!");
+}
+
+async fn init_outbox(
+    app_state: AppState,
+    wait_group: WaitGroup,
+) {
+    let outbox_processor_resources = OutboxProcessorResources {
+        postgres_pool: app_state.postgres_pool.clone(),
+        sqs_client: app_state.sqs_client.clone(),
+        sns_client: app_state.sns_client.clone(),
+        http_gateway: app_state.http_gateway.clone(),
+    };
+
+    OutboxProcessor::init(outbox_processor_resources, shutdown_signal("Stopping outbox processor...")).await;
+
+    wait_group.done();
 }
 
 async fn shutdown_signal(message: &str) {
