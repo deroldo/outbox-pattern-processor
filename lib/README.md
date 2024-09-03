@@ -1,6 +1,6 @@
-# Outbox Pattern Processor - Rust library
+# Outbox Pattern Processor
 
-A application to make easier to dispatch your outbox-pattern data from database to SQS, SNS or HTTP and HTTPS gateway.
+Library to make easier to dispatch your outbox-pattern data from database to SQS, SNS and/or HTTP(S) gateways.
 
 * **Simple**: Your application only need to write into `outbox` table.
 * **Scalable**: It's possible to run more than one instance to increase performance without lose order.
@@ -86,8 +86,9 @@ let custom_resources = OutboxProcessorResources::new(
     // each optional with default value
     .with_outbox_query_limit(50)
     .with_http_timeout_in_millis(3000)
-    .with_max_in_flight_interval_in_seconds(5) 
-    .with_outbox_execution_interval_in_seconds(30)
+    .with_max_in_flight_interval_in_seconds(30)
+    .with_outbox_execution_interval_in_seconds(5)
+    .with_outbox_failure_limit(10)
     .with_delete_after_process_successfully(false);
 
 let _ = OutboxProcessor::new(outbox_processor_resources)

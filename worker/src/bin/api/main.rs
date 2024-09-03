@@ -1,8 +1,11 @@
+use aws_config::BehaviorVersion;
+use outbox_pattern_processor::aws::{SnsClient, SqsClient};
 use outbox_pattern_processor::environment::Environment;
 use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
 use outbox_pattern_processor::shutdown::Shutdown;
+use outbox_pattern_processor_worker::infra::database::Database;
 use outbox_pattern_processor_worker::routes::Routes;
-use outbox_pattern_processor_worker::state::AppState;
+use sqlx::{Pool, Postgres};
 use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -28,10 +31,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let wait_group = WaitGroup::new();
 
-    let app_state = AppState::new().await?;
+    let db_config = Database::from_env();
+    let postgres_pool = db_config.create_db_pool().await?;
 
-    tokio::spawn(init_http_server(app_state.clone(), wait_group.add(1)));
-    tokio::spawn(init_outbox(app_state.clone(), wait_group.add(1)));
+    let aws_config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    let sqs_client = SqsClient::new(&aws_config).await;
+    let sns_client = SnsClient::new(&aws_config).await;
+
+    tokio::spawn(init_http_server(wait_group.add(1)));
+    tokio::spawn(init_outbox(postgres_pool, sqs_client, sns_client, wait_group.add(1)));
 
     wait_group.wait();
 
@@ -40,12 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn init_http_server(
-    app_state: AppState,
-    wait_group: WaitGroup,
-) {
+async fn init_http_server(wait_group: WaitGroup) {
     info!("Starting http server...");
-    let routes = Routes::routes(&app_state).await;
+    let routes = Routes::routes().await;
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 9095));
 
@@ -60,10 +65,12 @@ async fn init_http_server(
 }
 
 async fn init_outbox(
-    app_state: AppState,
+    postgres_pool: Pool<Postgres>,
+    sqs_client: SqsClient,
+    sns_client: SnsClient,
     wait_group: WaitGroup,
 ) {
-    let outbox_processor_resources = OutboxProcessorResources::new(app_state.postgres_pool.clone(), app_state.sqs_client.clone(), app_state.sns_client.clone());
+    let outbox_processor_resources = OutboxProcessorResources::new(postgres_pool, Some(sqs_client), Some(sns_client));
 
     let _ = OutboxProcessor::new(outbox_processor_resources)
         .with_graceful_shutdown(Shutdown::signal("Stopping outbox processor..."))

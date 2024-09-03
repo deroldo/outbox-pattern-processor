@@ -1,17 +1,11 @@
 [package]
 name = "outbox-pattern-processor-worker"
-version = "0.1.0"
 edition = "2021"
 authors = [
     "Diogo Deroldo <diogoderoldo@gmail.com>"
 ]
 license = "MIT"
-description = "outbox pattern processor"
 readme = "README.md"
-homepage = "https://github.com/deroldo/outbox-pattern-processor"
-repository = "https://github.com/deroldo/outbox-pattern-processor"
-keywords = ["outbox", "outbox-pattern", "outbox-table", "outbox-event"]
-categories = ["web-programming"]
 
 [dependencies]
 outbox-pattern-processor = { path = "../lib" }

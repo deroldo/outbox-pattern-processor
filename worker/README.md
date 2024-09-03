@@ -1,6 +1,6 @@
-# Outbox Pattern Processor - Rust library
+# Outbox Pattern Processor - Worker
 
-A application to make easier to dispatch your outbox-pattern data from database to SQS, SNS or HTTP and HTTPS gateway.
+A application to make easier to dispatch your outbox-pattern data from database to SQS, SNS and/or HTTP(S) gateways.
 
 * **Simple**: Your application only need to write into `outbox` table.
 * **Scalable**: It's possible to run more than one instance to increase performance without lose order.

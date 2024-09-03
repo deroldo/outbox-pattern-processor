@@ -6,7 +6,7 @@ authors = [
     "Diogo Deroldo <diogoderoldo@gmail.com>"
 ]
 license = "MIT"
-description = "outbox pattern processor"
+description = "Library to make easier to dispatch your outbox-pattern data from database to SQS, SNS and/or HTTP(S) gateways"
 readme = "README.md"
 homepage = "https://github.com/deroldo/outbox-pattern-processor"
 repository = "https://github.com/deroldo/outbox-pattern-processor"

@@ -7,14 +7,21 @@ use aws_sdk_sns::error::ProvideErrorMetadata;
 use aws_sdk_sns::types::{MessageAttributeValue, PublishBatchRequestEntry};
 use tracing::log::error;
 
-pub struct SqsNotificationService;
+pub struct SnsNotificationService;
 
-impl SqsNotificationService {
+impl SnsNotificationService {
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,
     ) -> Result<NotificationResult, OutboxPatternProcessorError> {
         let mut notification_result = NotificationResult::default();
+
+        let sns_client = if let Some(client) = app_state.sns_client.clone() {
+            client
+        } else {
+            notification_result.failed.extend(outboxes.sns.values().flat_map(|it| it.clone()).collect::<Vec<_>>());
+            return Ok(notification_result);
+        };
 
         for (topic_arn, topic_outboxes) in outboxes.sns.clone() {
             let chunks = topic_outboxes.chunks(10).collect::<Vec<&[Outbox]>>();
@@ -68,8 +75,7 @@ impl SqsNotificationService {
                     entries.push(entry);
                 }
 
-                let publish_result = app_state
-                    .sns_client
+                let publish_result = sns_client
                     .client
                     .publish_batch()
                     .topic_arn(&topic_arn)

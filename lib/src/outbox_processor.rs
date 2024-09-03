@@ -7,8 +7,8 @@ use crate::outbox::Outbox;
 use crate::outbox_destination::OutboxDestination;
 use crate::outbox_group::GroupedOutboxed;
 use crate::outbox_repository::OutboxRepository;
-use crate::sns_notification_service::SqsNotificationService;
-use crate::sqs_notification_service::SnsNotificationService;
+use crate::sns_notification_service::SnsNotificationService;
+use crate::sqs_notification_service::SqsNotificationService;
 use sqlx::{Pool, Postgres};
 use std::future::Future;
 use std::time::Duration;
@@ -17,20 +17,21 @@ use tracing::log::{error, info};
 #[derive(Clone)]
 pub struct OutboxProcessorResources {
     pub postgres_pool: Pool<Postgres>,
-    pub sqs_client: SqsClient,
-    pub sns_client: SnsClient,
+    pub sqs_client: Option<SqsClient>,
+    pub sns_client: Option<SnsClient>,
     pub http_timeout_in_millis: Option<u64>,
     pub outbox_query_limit: Option<u32>,
     pub outbox_execution_interval_in_seconds: Option<u64>,
     pub delete_after_process_successfully: Option<bool>,
     pub max_in_flight_interval_in_seconds: Option<u64>,
+    pub outbox_failure_limit: Option<u32>,
 }
 
 impl OutboxProcessorResources {
     pub fn new(
         postgres_pool: Pool<Postgres>,
-        sqs_client: SqsClient,
-        sns_client: SnsClient,
+        sqs_client: Option<SqsClient>,
+        sns_client: Option<SnsClient>,
     ) -> Self {
         Self {
             postgres_pool,
@@ -41,6 +42,7 @@ impl OutboxProcessorResources {
             outbox_execution_interval_in_seconds: None,
             delete_after_process_successfully: None,
             max_in_flight_interval_in_seconds: None,
+            outbox_failure_limit: None,
         }
     }
 
@@ -57,6 +59,7 @@ impl OutboxProcessorResources {
             outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
             delete_after_process_successfully: self.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+            outbox_failure_limit: self.outbox_failure_limit,
         }
     }
 
@@ -73,6 +76,7 @@ impl OutboxProcessorResources {
             outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
             delete_after_process_successfully: self.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+            outbox_failure_limit: self.outbox_failure_limit,
         }
     }
 
@@ -89,6 +93,7 @@ impl OutboxProcessorResources {
             outbox_execution_interval_in_seconds: Some(outbox_execution_interval_in_seconds),
             delete_after_process_successfully: self.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+            outbox_failure_limit: self.outbox_failure_limit,
         }
     }
 
@@ -105,6 +110,7 @@ impl OutboxProcessorResources {
             outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
             delete_after_process_successfully: Some(delete_after_process_successfully),
             max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+            outbox_failure_limit: self.outbox_failure_limit,
         }
     }
 
@@ -121,6 +127,24 @@ impl OutboxProcessorResources {
             outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
             delete_after_process_successfully: self.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: Some(max_in_flight_interval_in_seconds),
+            outbox_failure_limit: self.outbox_failure_limit,
+        }
+    }
+
+    pub fn with_outbox_failure_limit(
+        self,
+        outbox_failure_limit: u32,
+    ) -> Self {
+        Self {
+            postgres_pool: self.postgres_pool,
+            sqs_client: self.sqs_client,
+            sns_client: self.sns_client,
+            http_timeout_in_millis: self.http_timeout_in_millis,
+            outbox_query_limit: self.outbox_query_limit,
+            outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
+            delete_after_process_successfully: self.delete_after_process_successfully,
+            max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+            outbox_failure_limit: Some(outbox_failure_limit),
         }
     }
 }
@@ -192,9 +216,10 @@ impl OutboxProcessor {
             outbox_query_limit: resources.outbox_query_limit,
             delete_after_process_successfully: resources.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: resources.max_in_flight_interval_in_seconds,
+            outbox_failure_limit: resources.outbox_failure_limit,
         };
 
-        let outboxes = OutboxRepository::list(&app_state, app_state.outbox_query_limit.unwrap_or(50) as i32).await?;
+        let outboxes = OutboxRepository::list(&app_state).await?;
 
         let grouped_outboxes = Self::group_by_destination(outboxes.clone());
 
@@ -212,11 +237,19 @@ impl OutboxProcessor {
             .filter(|it| !failure_outbox.iter().any(|failed| failed.idempotent_key == it.idempotent_key))
             .collect::<Vec<Outbox>>();
 
+        let mut transaction = app_state.begin_transaction().await?;
+
         if app_state.delete_after_process_successfully.unwrap_or(false) {
-            OutboxRepository::delete_processed(&app_state, &successfully_outboxes).await?;
+            OutboxRepository::delete_processed(&mut transaction, &successfully_outboxes).await?;
         } else {
-            OutboxRepository::mark_as_processed(&app_state, &successfully_outboxes).await?;
+            OutboxRepository::mark_as_processed(&mut transaction, &successfully_outboxes).await?;
         }
+
+        if !failure_outbox.is_empty() {
+            OutboxRepository::increase_attempts(&mut transaction, &failure_outbox).await?;
+        }
+
+        app_state.commit_transaction(transaction).await?;
 
         Ok(())
     }

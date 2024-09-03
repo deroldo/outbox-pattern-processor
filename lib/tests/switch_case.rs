@@ -11,6 +11,8 @@ mod test {
     use serial_test::serial;
     use std::collections::HashMap;
     use std::env;
+    use std::thread::sleep;
+    use std::time::Duration;
     use test_context::test_context;
 
     #[test_context(TestContext)]
@@ -132,9 +134,82 @@ mod test {
 
         let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
         assert!(stored_outbox_1.processed_at.is_none());
+        assert_eq!(1, stored_outbox_1.attempts);
 
         let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
         assert!(stored_outbox_2.processed_at.is_some());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_respect_attempts_when_is_less_than_threshold(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone())
+            .with_outbox_query_limit(1)
+            .with_outbox_failure_limit(2)
+            .with_max_in_flight_interval_in_seconds(1);
+
+        let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+        sleep(Duration::from_millis(1200));
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(2, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_none());
+        assert_eq!(2, stored_outbox_1.attempts);
+
+        let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
+        assert!(stored_outbox_2.processed_at.is_none());
+        assert_eq!(0, stored_outbox_2.attempts);
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_respect_attempts_when_is_greater_than_threshold(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone())
+            .with_outbox_query_limit(1)
+            .with_outbox_failure_limit(2)
+            .with_max_in_flight_interval_in_seconds(1);
+
+        let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+        sleep(Duration::from_millis(1200));
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+        sleep(Duration::from_millis(1200));
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(2, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_none());
+        assert_eq!(2, stored_outbox_1.attempts);
+
+        let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
+        assert!(stored_outbox_2.processed_at.is_some());
+        assert_eq!(1, stored_outbox_2.attempts);
 
         Ok(())
     }
@@ -506,6 +581,114 @@ mod test {
 
         let stored_outbox = stored_outboxes[0].clone();
         assert!(stored_outbox.processed_at.is_none());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_deleting_for_each_one_that_result_is_success(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone())
+            .with_delete_after_process_successfully(true);
+
+        let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(1, stored_outboxes.len());
+
+        let stored_outbox = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox.processed_at.is_none());
+        assert_eq!(1, stored_outbox.attempts);
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_fail_when_destination_is_sqs_but_client_is_none(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), None, ctx.resources.sns_client.clone());
+
+        let outbox_1 = DefaultData::create_default_sqs_outbox_success(ctx).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(2, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_none());
+        assert_eq!(1, stored_outbox_1.attempts);
+
+        let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
+        assert!(stored_outbox_2.processed_at.is_some());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_fail_when_destination_is_sns_but_client_is_none(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), None);
+
+        let outbox_1 = DefaultData::create_default_sns_outbox_success(ctx).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(2, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_none());
+        assert_eq!(1, stored_outbox_1.attempts);
+
+        let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
+        assert!(stored_outbox_2.processed_at.is_some());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_successfully_when_destination_is_http_and_sqs_and_sns_clients_are_none(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), None, None);
+
+        let outbox = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox).await;
+
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(1, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_some());
 
         Ok(())
     }

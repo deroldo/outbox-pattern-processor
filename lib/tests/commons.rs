@@ -45,16 +45,7 @@ impl AsyncTestContext for TestContext {
         let sqs_client = SqsClient::new(&aws_config).await;
         let sns_client = SnsClient::new(&aws_config).await;
 
-        let resources = OutboxProcessorResources {
-            postgres_pool,
-            sqs_client,
-            sns_client,
-            http_timeout_in_millis: None,
-            outbox_query_limit: None,
-            outbox_execution_interval_in_seconds: None,
-            delete_after_process_successfully: None,
-            max_in_flight_interval_in_seconds: None,
-        };
+        let resources = OutboxProcessorResources::new(postgres_pool, Some(sqs_client), Some(sns_client));
 
         let gateway_uri = mock_server.uri();
         let queue_url = Infrastructure::init_sqs(&resources).await.queue_url.unwrap();
@@ -92,11 +83,11 @@ impl Infrastructure {
     }
 
     async fn init_sqs(resources: &OutboxProcessorResources) -> CreateQueueOutput {
-        resources.sqs_client.client.create_queue().queue_name("queue").send().await.unwrap()
+        resources.sqs_client.clone().unwrap().client.create_queue().queue_name("queue").send().await.unwrap()
     }
 
     async fn init_sns(resources: &OutboxProcessorResources) -> CreateTopicOutput {
-        resources.sns_client.client.create_topic().name("topic").send().await.unwrap()
+        resources.sns_client.clone().unwrap().client.create_topic().name("topic").send().await.unwrap()
     }
 
     async fn init_mock_server() -> MockServer {
