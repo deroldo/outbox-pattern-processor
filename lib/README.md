@@ -12,7 +12,7 @@ Library to make easier to dispatch your outbox-pattern data from database to SQS
 
 ## Pre-requisites
 
-[Database configuration](../database/README.md)
+[Database configuration](./database/README.md)
 
 ## How to use
 
