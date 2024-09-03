@@ -18,21 +18,18 @@ A application to make easier to dispatch your outbox-pattern data from database 
 
 ### Persisting outbox event data
 
-###### Simple
+###### Rust
 ```rust
 let partition_key = Uuid::now_v7(); // or your own domain unique uuid
+let url = "https://your-detination-url.com/some-path";
+let headers = None;
+let payload = json!({
+    "foo": "bar",
+};
 
-let outbox = Outbox::http_json(
-    partition_key, 
-    "https://your-detination-url.com/some-path",
-    None,
-    json!({
-        "foo": "bar",
-    }),
-);
+let outbox = Outbox::http_json(partition_key, url, headers, &payload);
 
 let stored_outbox = OutboxRepository::insert(&mut transaction, outbox).await?;
-
 let idempotent_key = stored_outbox.idempotent_key;
 ```
 
@@ -44,8 +41,6 @@ values
     ($1, $2, $3, $4, $5)
 returning *
 ```
-
-
 
 ### Initialize
 
