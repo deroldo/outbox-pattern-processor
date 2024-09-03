@@ -2,10 +2,10 @@ use crate::app_state::AppState;
 use crate::error::OutboxPatternProcessorError;
 use crate::notification::NotificationResult;
 use crate::outbox::Outbox;
+use crate::outbox_group::GroupedOutboxed;
 use aws_sdk_sqs::error::ProvideErrorMetadata;
 use aws_sdk_sqs::types::{MessageAttributeValue, SendMessageBatchRequestEntry};
 use tracing::log::error;
-use crate::outbox_group::GroupedOutboxed;
 
 pub struct SnsNotificationService;
 

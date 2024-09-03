@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::outbox::Outbox;
+use std::collections::HashMap;
 
 #[derive(Clone, Default)]
 pub struct GroupedOutboxed {

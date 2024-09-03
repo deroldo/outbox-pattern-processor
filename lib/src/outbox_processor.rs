@@ -5,6 +5,7 @@ use crate::http_gateway::HttpGateway;
 use crate::http_notification_service::HttpNotificationService;
 use crate::outbox::Outbox;
 use crate::outbox_destination::OutboxDestination;
+use crate::outbox_group::GroupedOutboxed;
 use crate::outbox_repository::OutboxRepository;
 use crate::sns_notification_service::SqsNotificationService;
 use crate::sqs_notification_service::SnsNotificationService;
@@ -12,18 +13,116 @@ use sqlx::{Pool, Postgres};
 use std::future::Future;
 use std::time::Duration;
 use tracing::log::{error, info};
-use crate::outbox_group::GroupedOutboxed;
 
 #[derive(Clone)]
 pub struct OutboxProcessorResources {
     pub postgres_pool: Pool<Postgres>,
     pub sqs_client: SqsClient,
     pub sns_client: SnsClient,
-    pub http_timeout: Option<u64>,
+    pub http_timeout_in_millis: Option<u64>,
     pub outbox_query_limit: Option<u32>,
     pub outbox_execution_interval_in_seconds: Option<u64>,
     pub delete_after_process_successfully: Option<bool>,
     pub max_in_flight_interval_in_seconds: Option<u64>,
+}
+
+impl OutboxProcessorResources {
+    pub fn new(
+        postgres_pool: Pool<Postgres>,
+        sqs_client: SqsClient,
+        sns_client: SnsClient,
+    ) -> Self {
+        Self {
+            postgres_pool,
+            sqs_client,
+            sns_client,
+            http_timeout_in_millis: None,
+            outbox_query_limit: None,
+            outbox_execution_interval_in_seconds: None,
+            delete_after_process_successfully: None,
+            max_in_flight_interval_in_seconds: None,
+        }
+    }
+
+    pub fn with_http_timeout_in_millis(
+        self,
+        http_timeout: u64,
+    ) -> Self {
+        Self {
+            postgres_pool: self.postgres_pool,
+            sqs_client: self.sqs_client,
+            sns_client: self.sns_client,
+            http_timeout_in_millis: Some(http_timeout),
+            outbox_query_limit: self.outbox_query_limit,
+            outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
+            delete_after_process_successfully: self.delete_after_process_successfully,
+            max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+        }
+    }
+
+    pub fn with_outbox_query_limit(
+        self,
+        outbox_query_limit: u32,
+    ) -> Self {
+        Self {
+            postgres_pool: self.postgres_pool,
+            sqs_client: self.sqs_client,
+            sns_client: self.sns_client,
+            http_timeout_in_millis: self.http_timeout_in_millis,
+            outbox_query_limit: Some(outbox_query_limit),
+            outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
+            delete_after_process_successfully: self.delete_after_process_successfully,
+            max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+        }
+    }
+
+    pub fn with_outbox_execution_interval_in_seconds(
+        self,
+        outbox_execution_interval_in_seconds: u64,
+    ) -> Self {
+        Self {
+            postgres_pool: self.postgres_pool,
+            sqs_client: self.sqs_client,
+            sns_client: self.sns_client,
+            http_timeout_in_millis: self.http_timeout_in_millis,
+            outbox_query_limit: self.outbox_query_limit,
+            outbox_execution_interval_in_seconds: Some(outbox_execution_interval_in_seconds),
+            delete_after_process_successfully: self.delete_after_process_successfully,
+            max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+        }
+    }
+
+    pub fn with_delete_after_process_successfully(
+        self,
+        delete_after_process_successfully: bool,
+    ) -> Self {
+        Self {
+            postgres_pool: self.postgres_pool,
+            sqs_client: self.sqs_client,
+            sns_client: self.sns_client,
+            http_timeout_in_millis: self.http_timeout_in_millis,
+            outbox_query_limit: self.outbox_query_limit,
+            outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
+            delete_after_process_successfully: Some(delete_after_process_successfully),
+            max_in_flight_interval_in_seconds: self.max_in_flight_interval_in_seconds,
+        }
+    }
+
+    pub fn with_max_in_flight_interval_in_seconds(
+        self,
+        max_in_flight_interval_in_seconds: u64,
+    ) -> Self {
+        Self {
+            postgres_pool: self.postgres_pool,
+            sqs_client: self.sqs_client,
+            sns_client: self.sns_client,
+            http_timeout_in_millis: self.http_timeout_in_millis,
+            outbox_query_limit: self.outbox_query_limit,
+            outbox_execution_interval_in_seconds: self.outbox_execution_interval_in_seconds,
+            delete_after_process_successfully: self.delete_after_process_successfully,
+            max_in_flight_interval_in_seconds: Some(max_in_flight_interval_in_seconds),
+        }
+    }
 }
 
 pub struct OutboxProcessor {
@@ -89,7 +188,7 @@ impl OutboxProcessor {
             postgres_pool: resources.postgres_pool.clone(),
             sqs_client: resources.sqs_client.clone(),
             sns_client: resources.sns_client.clone(),
-            http_gateway: HttpGateway::new(resources.http_timeout.unwrap_or(3000))?,
+            http_gateway: HttpGateway::new(resources.http_timeout_in_millis.unwrap_or(3000))?,
             outbox_query_limit: resources.outbox_query_limit,
             delete_after_process_successfully: resources.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: resources.max_in_flight_interval_in_seconds,

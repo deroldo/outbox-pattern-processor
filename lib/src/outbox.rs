@@ -1,13 +1,13 @@
+use crate::http_destination::HttpDestination;
 use crate::outbox_destination::OutboxDestination;
+use crate::sns_destination::SnsDestination;
+use crate::sqs_destination::SqsDestination;
+use serde_json::Value;
 use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::types::Json;
 use sqlx::FromRow;
 use std::collections::HashMap;
-use serde_json::Value;
 use uuid::Uuid;
-use crate::http_destination::HttpDestination;
-use crate::sns_destination::SnsDestination;
-use crate::sqs_destination::SqsDestination;
 
 #[derive(Debug, FromRow, Clone, PartialEq)]
 pub struct Outbox {
@@ -22,82 +22,87 @@ pub struct Outbox {
 }
 
 impl Outbox {
-    pub fn http(
-        partition_key: Uuid,
-        url: &str,
-        headers: Option<HashMap<String, String>>,
-        payload: &str,
-    ) -> Self {
-        Outbox {
-            idempotent_key: Uuid::now_v7(),
-            partition_key,
-            destinations: Json(vec![OutboxDestination::HttpDestination(HttpDestination {
-                url: url.to_string(),
-                headers: None,
-                method: None,
-            })]),
-            headers: headers.map(Json),
-            payload: payload.to_string(),
-            created_at: Utc::now(),
-            processing_until: None,
-            processed_at: None,
-        }
-    }
-
-    pub fn http_json(
+    pub fn http_post_json(
         partition_key: Uuid,
         url: &str,
         headers: Option<HashMap<String, String>>,
         payload: &Value,
     ) -> Self {
-        Outbox {
-            idempotent_key: Uuid::now_v7(),
-            partition_key,
-            destinations: Json(vec![OutboxDestination::HttpDestination(HttpDestination {
-                url: url.to_string(),
-                headers: Some(HashMap::from([("Content-Type".to_string(), "application/json".to_string())])),
-                method: None,
-            })]),
-            headers: headers.map(Json),
-            payload: payload.to_string(),
-            created_at: Utc::now(),
-            processing_until: None,
-            processed_at: None,
-        }
+        Self::http(partition_key, url, headers, &payload.to_string(), None)
+    }
+
+    pub fn http_put_json(
+        partition_key: Uuid,
+        url: &str,
+        headers: Option<HashMap<String, String>>,
+        payload: &Value,
+    ) -> Self {
+        Self::http(partition_key, url, headers, &payload.to_string(), Some("put".to_string()))
+    }
+
+    pub fn http_patch_json(
+        partition_key: Uuid,
+        url: &str,
+        headers: Option<HashMap<String, String>>,
+        payload: &Value,
+    ) -> Self {
+        Self::http(partition_key, url, headers, &payload.to_string(), Some("patch".to_string()))
     }
 
     pub fn sqs(
         partition_key: Uuid,
         queue_url: &str,
         headers: Option<HashMap<String, String>>,
-        payload: &Value,
+        payload: &str,
     ) -> Self {
-        Outbox {
-            idempotent_key: Uuid::now_v7(),
-            partition_key,
-            destinations: Json(vec![OutboxDestination::SqsDestination(SqsDestination {
-                queue_url: queue_url.to_string(),
-            })]),
-            headers: headers.map(Json),
-            payload: payload.to_string(),
-            created_at: Utc::now(),
-            processing_until: None,
-            processed_at: None,
-        }
+        let destinations = vec![OutboxDestination::SqsDestination(SqsDestination { queue_url: queue_url.to_string() })];
+
+        Self::new(partition_key, destinations, headers, payload)
     }
 
     pub fn sns(
         partition_key: Uuid,
         topic_arn: &str,
         headers: Option<HashMap<String, String>>,
-        payload: &Value,
+        payload: &str,
+    ) -> Self {
+        let destinations = vec![OutboxDestination::SnsDestination(SnsDestination { topic_arn: topic_arn.to_string() })];
+
+        Self::new(partition_key, destinations, headers, payload)
+    }
+
+    fn http(
+        partition_key: Uuid,
+        url: &str,
+        headers: Option<HashMap<String, String>>,
+        payload: &str,
+        method: Option<String>,
+    ) -> Self {
+        let mut extended_headers = headers.unwrap_or_default();
+        extended_headers.extend(HashMap::from([("Content-Type".to_string(), "application/json".to_string())]));
+
+        Self::new(
+            partition_key,
+            vec![OutboxDestination::HttpDestination(HttpDestination {
+                url: url.to_string(),
+                headers: Some(extended_headers),
+                method,
+            })],
+            None,
+            payload,
+        )
+    }
+
+    fn new(
+        partition_key: Uuid,
+        destinations: Vec<OutboxDestination>,
+        headers: Option<HashMap<String, String>>,
+        payload: &str,
     ) -> Self {
         Outbox {
             idempotent_key: Uuid::now_v7(),
             partition_key,
-            destinations: Json(vec![OutboxDestination::SnsDestination(SnsDestination {
-                topic_arn: topic_arn.to_string(),
-            })]),
+            destinations: Json(destinations),
             headers: headers.map(Json),
             payload: payload.to_string(),
             created_at: Utc::now(),

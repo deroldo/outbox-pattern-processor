@@ -49,7 +49,7 @@ impl AsyncTestContext for TestContext {
             postgres_pool,
             sqs_client,
             sns_client,
-            http_timeout: None,
+            http_timeout_in_millis: None,
             outbox_query_limit: None,
             outbox_execution_interval_in_seconds: None,
             delete_after_process_successfully: None,

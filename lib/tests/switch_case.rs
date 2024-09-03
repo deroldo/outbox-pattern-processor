@@ -19,16 +19,8 @@ mod test {
     async fn should_process_batch_limit(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        let custom_resources = OutboxProcessorResources {
-            postgres_pool: ctx.resources.postgres_pool.clone(),
-            sqs_client: ctx.resources.sqs_client.clone(),
-            sns_client: ctx.resources.sns_client.clone(),
-            http_timeout: None,
-            outbox_query_limit: Some(2),
-            outbox_execution_interval_in_seconds: None,
-            delete_after_process_successfully: None,
-            max_in_flight_interval_in_seconds: None,
-        };
+        let custom_resources =
+            OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone()).with_outbox_query_limit(2);
 
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -61,16 +53,8 @@ mod test {
     async fn should_process_all_with_batch_limit(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        let custom_resources = OutboxProcessorResources {
-            postgres_pool: ctx.resources.postgres_pool.clone(),
-            sqs_client: ctx.resources.sqs_client.clone(),
-            sns_client: ctx.resources.sns_client.clone(),
-            http_timeout: None,
-            outbox_query_limit: Some(2),
-            outbox_execution_interval_in_seconds: None,
-            delete_after_process_successfully: None,
-            max_in_flight_interval_in_seconds: None,
-        };
+        let custom_resources =
+            OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone()).with_outbox_query_limit(2);
 
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;

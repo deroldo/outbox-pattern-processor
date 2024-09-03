@@ -63,16 +63,7 @@ async fn init_outbox(
     app_state: AppState,
     wait_group: WaitGroup,
 ) {
-    let outbox_processor_resources = OutboxProcessorResources {
-        postgres_pool: app_state.postgres_pool.clone(),
-        sqs_client: app_state.sqs_client.clone(),
-        sns_client: app_state.sns_client.clone(),
-        http_timeout: None,
-        outbox_query_limit: None,
-        outbox_execution_interval_in_seconds: None,
-        delete_after_process_successfully: None,
-        max_in_flight_interval_in_seconds: None,
-    };
+    let outbox_processor_resources = OutboxProcessorResources::new(app_state.postgres_pool.clone(), app_state.sqs_client.clone(), app_state.sns_client.clone());
 
     let _ = OutboxProcessor::new(outbox_processor_resources)
         .with_graceful_shutdown(Shutdown::signal("Stopping outbox processor..."))

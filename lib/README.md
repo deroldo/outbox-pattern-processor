@@ -18,7 +18,9 @@ A application to make easier to dispatch your outbox-pattern data from database 
 
 ### Persisting outbox event data
 
-###### Rust
+##### Rust
+
+###### HTTP
 ```rust
 let partition_key = Uuid::now_v7(); // or your own domain unique uuid
 let url = "https://your-detination-url.com/some-path";
@@ -27,13 +29,41 @@ let payload = json!({
     "foo": "bar",
 };
 
-let outbox = Outbox::http_json(partition_key, url, headers, &payload);
+let outbox = Outbox::http_post_json(partition_key, url, headers, &payload); // can also choose for post, put or patch
+```
 
+###### SNS
+```rust
+let partition_key = Uuid::now_v7(); // or your own domain unique uuid
+let topic_arn = "arn:aws:sns:us-east-1:000000000000:topic";
+let headers = None;
+let payload = "any data"; // can also be a JSON stringified
+
+let outbox = Outbox::sns(partition_key, topic_arn, headers, &payload);
+```
+
+###### SQS
+```rust
+let partition_key = Uuid::now_v7(); // or your own domain unique uuid
+let queue_url = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/queue";
+let headers = None;
+let payload = "any data"; // can also be a JSON stringified
+
+let outbox = Outbox::sqs(partition_key, url, headers, &payload);
+```
+
+###### Persisting
+
+```rust
 let stored_outbox = OutboxRepository::insert(&mut transaction, outbox).await?;
 let idempotent_key = stored_outbox.idempotent_key;
 ```
 
-###### Manually
+##### Manually
+
+> [!NOTE]  
+> More details and examples about columns data in [database configuration](../database/README.md)
+
 ```sql
 insert into outbox
     (idempotent_key, partition_key, destinations, headers, payload)
@@ -44,14 +74,26 @@ returning *
 
 ### Initialize
 
-###### Simple
+##### Simple
 ```rust
+let custom_resources = OutboxProcessorResources::new(
+    ctx.resources.postgres_pool.clone(),
+    ctx.resources.sqs_client.clone(),
+    ctx.resources.sns_client.clone(),
+)
+    // each optional with default value
+    .with_outbox_query_limit(50)
+    .with_http_timeout_in_millis(3000)
+    .with_max_in_flight_interval_in_seconds(5) 
+    .with_outbox_execution_interval_in_seconds(30)
+    .with_delete_after_process_successfully(false);
+
 let _ = OutboxProcessor::new(outbox_processor_resources)
         .init()
         .await;
 ```
 
-###### Tokio + Axum example
+##### Tokio + Axum example
 
 ```rust
 use outbox_pattern_processor::environment::Environment;
@@ -119,16 +161,17 @@ async fn init_outbox(
     app_state: AppState,
     wait_group: WaitGroup,
 ) {
-    let outbox_processor_resources = OutboxProcessorResources {
-        postgres_pool: app_state.postgres_pool.clone(),
-        sqs_client: app_state.sqs_client.clone(),
-        sns_client: app_state.sns_client.clone(),
-        http_timeout: None,
-        outbox_query_limit: None,
-        outbox_execution_interval_in_seconds: None,
-        delete_after_process_successfully: None,
-        max_in_flight_interval_in_seconds: None,
-    };
+    let custom_resources = OutboxProcessorResources::new(
+        ctx.resources.postgres_pool.clone(),
+        ctx.resources.sqs_client.clone(),
+        ctx.resources.sns_client.clone(),
+    )
+        // each optional with default value
+        .with_outbox_query_limit(50)
+        .with_http_timeout_in_millis(3000)
+        .with_max_in_flight_interval_in_seconds(5)
+        .with_outbox_execution_interval_in_seconds(30)
+        .with_delete_after_process_successfully(false);
 
     let _ = OutboxProcessor::new(outbox_processor_resources)
         .with_graceful_shutdown(Shutdown::signal("Stopping outbox processor..."))

@@ -3,9 +3,9 @@ use crate::environment::Environment;
 use crate::error::OutboxPatternProcessorError;
 use crate::notification::NotificationResult;
 use crate::outbox_destination::OutboxDestination;
+use crate::outbox_group::GroupedOutboxed;
 use regex::Regex;
 use tracing::log::error;
-use crate::outbox_group::GroupedOutboxed;
 
 pub struct HttpNotificationService;
 
