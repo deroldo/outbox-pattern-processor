@@ -1,4 +1,4 @@
-# Outbox Pattern Processor
+# Outbox Pattern Processor - Rust library
 
 A application to make easier to dispatch your outbox-pattern data from database to SQS, SNS or HTTP and HTTPS gateway.
 
@@ -10,44 +10,33 @@ A application to make easier to dispatch your outbox-pattern data from database 
 [mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
 [mit-url]: https://github.com/deroldo/outbox-pattern-processor/blob/main/LICENSE
 
-## Database compatibility
+## Pre-requisites
 
-### Postgres
-
-#### Required table
-```sql
-create table outbox
-(
-    idempotent_key   uuid        not null,
-    partition_key    uuid        not null,
-    destinations     jsonb       not null,
-    headers          jsonb,
-    payload          text        not null,
-    created_at       timestamptz not null default now(),
-    processing_until timestamptz not null default now(),
-    processed_at     timestamptz,
-    primary key (idempotent_key)
-);
-```
-
-#### Required indexes
-```sql
-create index index_outbox_by_partition_key on outbox (partition_key);
-create index index_outbox_by_created_at_and_processing_until on outbox (created_at, processing_until);
-create index index_outbox_by_processed_at on outbox (processed_at);
-```
+[Database configuration](../database/README.md)
 
 ## How to use
 
-### Running
+### Persisting outbox event data
 
-// TODO
+###### Simple
+```rust
+let partition_key = Uuid::now_v7(); // or your own domain unique uuid
 
-### Your application
+let outbox = Outbox::http_json(
+    partition_key, 
+    "https://your-detination-url.com/some-path",
+    None,
+    json!({
+        "foo": "bar",
+    }),
+);
 
-After starting to run `outbox-pattern-processor`, you need to insert data into the `outbox` table to be processed.
-Below is the insert command and details for each column.
+let stored_outbox = OutboxRepository::insert(&mut transaction, outbox).await?;
 
+let idempotent_key = stored_outbox.idempotent_key;
+```
+
+###### Manually
 ```sql
 insert into outbox
     (idempotent_key, partition_key, destinations, headers, payload)
@@ -56,109 +45,105 @@ values
 returning *
 ```
 
-#### idempotent_key
 
-- Primary Key
-- UUID format (preferably UUIDv7)
 
-###### Example: `01919ea7-2049-7f94-a77e-75f7fecbb28e`
+### Initialize
 
-#### partition_key
+###### Simple
+```rust
+let _ = OutboxProcessor::new(outbox_processor_resources)
+        .init()
+        .await;
+```
 
-- UUID format (preferably UUIDv7)
-- Used to ensure the order from outbox events provided by the same "origin" 
+###### Tokio + Axum example
 
-###### Example: `01919ea7-85ac-755e-a77d-a1d90438b260`
+```rust
+use outbox_pattern_processor::environment::Environment;
+use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
+use outbox_pattern_processor::shutdown::Shutdown;
+use outbox_pattern_processor_worker::routes::Routes;
+use outbox_pattern_processor_worker::state::AppState;
+use std::env;
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
+use tracing::log::info;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+use wg::WaitGroup;
 
-#### destinations
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
 
-- JSON Array of destination kinds
-- Used to dispatch outbox events
+    let rust_log = Environment::string("RUST_LOG", "INFO,sqlx::postgres::notice=WARN,sqlx::query=WARN");
+    env::set_var("RUST_LOG", rust_log);
 
-SQS
-```json
-{
-  "queue_url": "<AWS queue url format>"
+    tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env())
+        .with(Box::new(tracing_subscriber::fmt::layer().with_writer(non_blocking)))
+        .init();
+
+    info!("Starting...");
+
+    let wait_group = WaitGroup::new();
+
+    let app_state = AppState::new().await?;
+
+    tokio::spawn(init_http_server(app_state.clone(), wait_group.add(1)));
+    tokio::spawn(init_outbox(app_state.clone(), wait_group.add(1)));
+
+    wait_group.wait();
+
+    info!("Stopped!");
+
+    Ok(())
 }
-```
 
-SNS
-```json
-{
-  "topic_arn": "<AWS topic arn format>"
-}
-```
+async fn init_http_server(
+    app_state: AppState,
+    wait_group: WaitGroup,
+) {
+    info!("Starting http server...");
+    let routes = Routes::routes(&app_state).await;
 
-HTTP
-```json
-{
-  "url": "<HTTP url format>",
-  "headers": {
-    "key": "value"
-  }, // optional
-  "method": "<POST|PUT|PATCH>" // optional - default POST
-}
-```
+    let addr = SocketAddr::from(([0, 0, 0, 0], 9095));
 
-###### Simple example:
-```json
-[
-  {
-    "queue_url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/queue"
-  }
-]
-```
-
-###### Full example:
-```json
-[
-  {
-    "queue_url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/queue"
-  },
-  {
-    "topic_arn": "arn:aws:sns:us-east-1:000000000000:topic"
-  },
-  {
-    "url": "https://my-domain.com/first",
-    "headers": {
-      "Content-Type": "application/json"
-    },
-    "method": "PUT"
-  },
-  {
-    "url": "http://my-domain.com/second",
-    "method": "PATCH"
-  },
-  {
-    "url": "https://my-domain.com/third",
-    "headers": {
-      "Content-Type": "application/json"
+    if let Ok(listener) = TcpListener::bind(addr).await {
+        info!("Running http server...");
+        let _ = axum::serve(listener, routes).with_graceful_shutdown(Shutdown::signal("Stopping http server...")).await;
     }
-  },
-  {
-    "url": "http://my-domain.com/fourth"
-  }
-]
-```
 
-#### headers
+    wait_group.done();
 
-- JSON Object
-- Used to add custom headers to destination
-- `x-idempotent-key` is always sent
-
-###### Example:
-```json
-{
-  "x-event-type": "creation"
+    info!("Http server stopped!");
 }
+
+async fn init_outbox(
+    app_state: AppState,
+    wait_group: WaitGroup,
+) {
+    let outbox_processor_resources = OutboxProcessorResources {
+        postgres_pool: app_state.postgres_pool.clone(),
+        sqs_client: app_state.sqs_client.clone(),
+        sns_client: app_state.sns_client.clone(),
+        http_timeout: None,
+        outbox_query_limit: None,
+        outbox_execution_interval_in_seconds: None,
+        delete_after_process_successfully: None,
+        max_in_flight_interval_in_seconds: None,
+    };
+
+    let _ = OutboxProcessor::new(outbox_processor_resources)
+        .with_graceful_shutdown(Shutdown::signal("Stopping outbox processor..."))
+        .init()
+        .await;
+
+    wait_group.done();
+}
+
 ```
-
-#### payload
-
-- Outbox event content
-
-###### Example: `Some message, it can be a stringify JSON too`
 
 ## License
 This project is licensed under the MIT license.

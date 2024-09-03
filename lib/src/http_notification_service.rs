@@ -2,10 +2,10 @@ use crate::app_state::AppState;
 use crate::environment::Environment;
 use crate::error::OutboxPatternProcessorError;
 use crate::notification::NotificationResult;
-use crate::outbox::GroupedOutboxed;
 use crate::outbox_destination::OutboxDestination;
 use regex::Regex;
 use tracing::log::error;
+use crate::outbox_group::GroupedOutboxed;
 
 pub struct HttpNotificationService;
 

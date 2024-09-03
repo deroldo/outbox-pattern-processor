@@ -3,7 +3,7 @@ use crate::aws::{SnsClient, SqsClient};
 use crate::error::OutboxPatternProcessorError;
 use crate::http_gateway::HttpGateway;
 use crate::http_notification_service::HttpNotificationService;
-use crate::outbox::{GroupedOutboxed, Outbox};
+use crate::outbox::Outbox;
 use crate::outbox_destination::OutboxDestination;
 use crate::outbox_repository::OutboxRepository;
 use crate::sns_notification_service::SqsNotificationService;
@@ -12,6 +12,7 @@ use sqlx::{Pool, Postgres};
 use std::future::Future;
 use std::time::Duration;
 use tracing::log::{error, info};
+use crate::outbox_group::GroupedOutboxed;
 
 #[derive(Clone)]
 pub struct OutboxProcessorResources {
