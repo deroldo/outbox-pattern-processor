@@ -16,6 +16,8 @@ A application to make easier to dispatch your outbox-pattern data from database 
 
 ## How to use
 
+To use as docker image, see more [here](../worker/README.md)
+
 ### Persisting outbox event data
 
 ##### Rust
