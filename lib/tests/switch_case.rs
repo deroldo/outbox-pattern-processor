@@ -5,7 +5,8 @@ mod test {
     use crate::commons::{DefaultData, HttpGatewayMock, TestContext};
     use outbox_pattern_processor::http_destination::HttpDestination;
     use outbox_pattern_processor::outbox_destination::OutboxDestination;
-    use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
+    use outbox_pattern_processor::outbox_processor::OutboxProcessor;
+    use outbox_pattern_processor::outbox_resources::OutboxProcessorResources;
     use outbox_pattern_processor::sns_destination::SnsDestination;
     use outbox_pattern_processor::sqs_destination::SqsDestination;
     use serial_test::serial;

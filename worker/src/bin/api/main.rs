@@ -1,7 +1,8 @@
 use aws_config::BehaviorVersion;
 use outbox_pattern_processor::aws::{SnsClient, SqsClient};
 use outbox_pattern_processor::environment::Environment;
-use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
+use outbox_pattern_processor::outbox_processor::OutboxProcessor;
+use outbox_pattern_processor::outbox_resources::OutboxProcessorResources;
 use outbox_pattern_processor::shutdown::Shutdown;
 use outbox_pattern_processor_worker::infra::database::Database;
 use outbox_pattern_processor_worker::routes::Routes;

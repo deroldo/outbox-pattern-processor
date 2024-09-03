@@ -5,7 +5,7 @@ use outbox_pattern_processor::aws::{SnsClient, SqsClient};
 use outbox_pattern_processor::http_destination::HttpDestination;
 use outbox_pattern_processor::outbox::Outbox;
 use outbox_pattern_processor::outbox_destination::OutboxDestination;
-use outbox_pattern_processor::outbox_processor::OutboxProcessorResources;
+use outbox_pattern_processor::outbox_resources::OutboxProcessorResources;
 use outbox_pattern_processor::sns_destination::SnsDestination;
 use outbox_pattern_processor::sqs_destination::SqsDestination;
 use rand::Rng;

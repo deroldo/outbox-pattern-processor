@@ -13,6 +13,7 @@ pub mod outbox_destination;
 mod outbox_group;
 mod outbox_private_repository;
 pub mod outbox_repository;
+pub mod outbox_resources;
 pub mod shutdown;
 pub mod sns_destination;
 mod sns_notification_service;
