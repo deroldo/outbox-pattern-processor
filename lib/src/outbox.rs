@@ -1,4 +1,4 @@
-use crate::domain::destination::outbox_destination::OutboxDestination;
+use crate::outbox_destination::OutboxDestination;
 use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::types::Json;
 use sqlx::FromRow;

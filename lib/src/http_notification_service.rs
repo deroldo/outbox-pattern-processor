@@ -1,9 +1,9 @@
-use crate::domain::destination::outbox_destination::OutboxDestination;
-use crate::domain::notification::NotificationResult;
-use crate::domain::outbox::GroupedOutboxed;
-use crate::infra::environment::Environment;
-use crate::infra::error::AppError;
-use crate::outbox_processor::OutboxProcessorResources;
+use crate::app_state::AppState;
+use crate::environment::Environment;
+use crate::error::OutboxPatternProcessorError;
+use crate::notification::NotificationResult;
+use crate::outbox::GroupedOutboxed;
+use crate::outbox_destination::OutboxDestination;
 use regex::Regex;
 use tracing::log::error;
 
@@ -11,9 +11,9 @@ pub struct HttpNotificationService;
 
 impl HttpNotificationService {
     pub async fn send(
-        resources: &OutboxProcessorResources,
+        app_state: &AppState,
         outboxes: &GroupedOutboxed,
-    ) -> Result<NotificationResult, AppError> {
+    ) -> Result<NotificationResult, OutboxPatternProcessorError> {
         let mut notification_result = NotificationResult::default();
 
         for outbox in outboxes.http.clone() {
@@ -21,9 +21,9 @@ impl HttpNotificationService {
                 if let OutboxDestination::HttpDestination(http) = destination {
                     let method = http.method.unwrap_or("POST".to_string()).to_uppercase();
                     let mut request = match method.as_str() {
-                        "PUT" => resources.http_gateway.client.put(&http.url),
-                        "PATCH" => resources.http_gateway.client.patch(&http.url),
-                        _ => resources.http_gateway.client.post(&http.url),
+                        "PUT" => app_state.http_gateway.client.put(&http.url),
+                        "PATCH" => app_state.http_gateway.client.patch(&http.url),
+                        _ => app_state.http_gateway.client.post(&http.url),
                     };
 
                     if let Some(headers) = http.headers {

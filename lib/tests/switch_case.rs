@@ -3,11 +3,11 @@ mod commons;
 #[cfg(test)]
 mod test {
     use crate::commons::{DefaultData, HttpGatewayMock, TestContext};
-    use outbox_pattern_processor::domain::destination::http_destination::HttpDestination;
-    use outbox_pattern_processor::domain::destination::outbox_destination::OutboxDestination;
-    use outbox_pattern_processor::domain::destination::sns_destination::SnsDestination;
-    use outbox_pattern_processor::domain::destination::sqs_destination::SqsDestination;
-    use outbox_pattern_processor::outbox_processor::OutboxProcessor;
+    use outbox_pattern_processor::http_destination::HttpDestination;
+    use outbox_pattern_processor::outbox_destination::OutboxDestination;
+    use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
+    use outbox_pattern_processor::sns_destination::SnsDestination;
+    use outbox_pattern_processor::sqs_destination::SqsDestination;
     use serial_test::serial;
     use std::collections::HashMap;
     use std::env;
@@ -19,7 +19,16 @@ mod test {
     async fn should_process_batch_limit(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "2");
+        let custom_resources = OutboxProcessorResources {
+            postgres_pool: ctx.resources.postgres_pool.clone(),
+            sqs_client: ctx.resources.sqs_client.clone(),
+            sns_client: ctx.resources.sns_client.clone(),
+            http_timeout: None,
+            outbox_query_limit: Some(2),
+            outbox_execution_interval_in_seconds: None,
+            delete_after_process_successfully: None,
+            max_in_flight_interval_in_seconds: None,
+        };
 
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -29,7 +38,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -49,10 +58,19 @@ mod test {
     #[test_context(TestContext)]
     #[serial]
     #[tokio::test]
-    async fn should_process_all(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn should_process_all_with_batch_limit(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "2");
+        let custom_resources = OutboxProcessorResources {
+            postgres_pool: ctx.resources.postgres_pool.clone(),
+            sqs_client: ctx.resources.sqs_client.clone(),
+            sns_client: ctx.resources.sns_client.clone(),
+            http_timeout: None,
+            outbox_query_limit: Some(2),
+            outbox_execution_interval_in_seconds: None,
+            delete_after_process_successfully: None,
+            max_in_flight_interval_in_seconds: None,
+        };
 
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -62,8 +80,8 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
+        let _ = OutboxProcessor::one_shot(&custom_resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -86,8 +104,6 @@ mod test {
     async fn should_process_all_one_shot(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
-
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -96,7 +112,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -119,15 +135,13 @@ mod test {
     async fn should_process_ignoring_fails(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
-
         let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
 
         HttpGatewayMock::default_mock(ctx, &outbox_1).await;
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(2, stored_outboxes.len());
@@ -147,8 +161,6 @@ mod test {
     async fn should_process_partition_with_one_shot(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
-
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -157,7 +169,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -180,8 +192,6 @@ mod test {
     async fn should_process_partition_concurrent_shots(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "30");
-
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         HttpGatewayMock::default_mock(ctx, &outbox_1).await;
         for _ in 0..10 {
@@ -192,7 +202,7 @@ mod test {
             HttpGatewayMock::default_mock(ctx, &other_outbox).await;
         }
 
-        let _ = tokio::join!(OutboxProcessor::run(&ctx.resources), OutboxProcessor::run(&ctx.resources),);
+        let _ = tokio::join!(OutboxProcessor::one_shot(&ctx.resources), OutboxProcessor::one_shot(&ctx.resources),);
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(21, stored_outboxes.len());
@@ -209,8 +219,6 @@ mod test {
     async fn should_process_partition_with_two_shots(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
-
         let outbox_1 = DefaultData::create_default_http_outbox_success(ctx).await;
         let outbox_2 = DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
         let outbox_3 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -219,8 +227,8 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
         HttpGatewayMock::default_mock(ctx, &outbox_3).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(3, stored_outboxes.len());
@@ -243,13 +251,11 @@ mod test {
     async fn should_process_http_put(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "2");
-
         let outbox = DefaultData::create_http_outbox_success(ctx, "PUT").await;
 
         HttpGatewayMock::mock_put(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -266,13 +272,11 @@ mod test {
     async fn should_process_http_patch(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "2");
-
         let outbox = DefaultData::create_http_outbox_success(ctx, "PATCH").await;
 
         HttpGatewayMock::mock_patch(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -288,8 +292,6 @@ mod test {
     #[tokio::test]
     async fn should_process_http_with_headers(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
-
-        env::set_var("OUTBOX_QUERY_LIMIT", "2");
 
         let env_value = "my-env-value";
         env::set_var("X_ENV_HEADER_VALUE", env_value);
@@ -315,7 +317,7 @@ mod test {
         )
         .await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -332,12 +334,10 @@ mod test {
     async fn should_process_sns(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
-
         let outbox_1 = DefaultData::create_default_sns_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_sns_outbox_success(ctx).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(2, stored_outboxes.len());
@@ -357,12 +357,10 @@ mod test {
     async fn should_process_sqs(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
 
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
-
         let outbox_1 = DefaultData::create_default_sqs_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_sqs_outbox_success(ctx).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(2, stored_outboxes.len());
@@ -381,8 +379,6 @@ mod test {
     #[tokio::test]
     async fn should_process_for_all_destination_successfully(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
-
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
         let outbox = DefaultData::create_outbox(
             ctx,
@@ -404,7 +400,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -420,8 +416,6 @@ mod test {
     #[tokio::test]
     async fn should_process_ignoring_http_fail(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
-
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
         let outbox = DefaultData::create_outbox(
             ctx,
@@ -443,7 +437,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -459,8 +453,6 @@ mod test {
     #[tokio::test]
     async fn should_process_ignoring_sqs_fail(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
-
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
         let outbox = DefaultData::create_outbox(
             ctx,
@@ -484,7 +476,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());
@@ -500,8 +492,6 @@ mod test {
     #[tokio::test]
     async fn should_process_ignoring_sns_fail(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         DefaultData::clear(ctx).await;
-
-        env::set_var("OUTBOX_QUERY_LIMIT", "5");
 
         let outbox = DefaultData::create_outbox(
             ctx,
@@ -525,7 +515,7 @@ mod test {
 
         HttpGatewayMock::default_mock(ctx, &outbox).await;
 
-        let _ = OutboxProcessor::run(&ctx.resources).await;
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
         assert_eq!(1, stored_outboxes.len());

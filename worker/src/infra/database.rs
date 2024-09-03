@@ -1,4 +1,4 @@
-use crate::infra::environment::Environment;
+use outbox_pattern_processor::environment::Environment;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Pool, Postgres};
 

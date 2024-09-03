@@ -1,41 +1,15 @@
-use crate::domain::outbox::Outbox;
-use crate::infra::environment::Environment;
-use crate::infra::error::AppError;
-use crate::outbox_processor::OutboxProcessorResources;
-use sqlx::{Postgres, Transaction};
+use crate::app_state::AppState;
+use crate::error::OutboxPatternProcessorError;
+use crate::outbox::Outbox;
+use crate::outbox_repository::OutboxRepository;
 use uuid::Uuid;
 
-pub struct OutboxRepository;
-
 impl OutboxRepository {
-    pub async fn insert(
-        transaction: &mut Transaction<'_, Postgres>,
-        outbox: Outbox,
-    ) -> Result<Outbox, AppError> {
-        let sql = r#"
-        insert into outbox
-            (idempotent_key, partition_key, destinations, headers, payload)
-        values
-            ($1, $2, $3, $4, $5)
-        returning *
-        "#;
-
-        sqlx::query_as(sql)
-            .bind(outbox.idempotent_key)
-            .bind(outbox.partition_key)
-            .bind(outbox.destinations)
-            .bind(outbox.headers)
-            .bind(outbox.payload)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|error| AppError::new(&error.to_string(), &format!("Failed to insert over partition_key={}", outbox.partition_key)))
-    }
-
     pub async fn list(
-        resources: &OutboxProcessorResources,
+        app_state: &AppState,
         limit: i32,
-    ) -> Result<Vec<Outbox>, AppError> {
-        let processing_until_incremente_interval = Environment::string("OUTBOX_PROCESSING_MAX_WAIT_IN_SQL_INTERVAL", "30 seconds");
+    ) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
+        let processing_until_incremente_interval = format!("{} seconds", app_state.max_in_flight_interval_in_seconds.unwrap_or(30));
 
         let sql = r#"
         with locked as (
@@ -68,15 +42,15 @@ impl OutboxRepository {
         sqlx::query_as(sql)
             .bind(limit)
             .bind(processing_until_incremente_interval)
-            .fetch_all(&resources.postgres_pool)
+            .fetch_all(&app_state.postgres_pool)
             .await
-            .map_err(|error| AppError::new(&error.to_string(), "Failed to list outboxes"))
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to list outboxes"))
     }
 
     pub async fn mark_as_processed(
-        resources: &OutboxProcessorResources,
+        app_state: &AppState,
         outboxes: &[Outbox],
-    ) -> Result<(), AppError> {
+    ) -> Result<(), OutboxPatternProcessorError> {
         let sql = r#"
         update outbox
         set processed_at = now()
@@ -85,19 +59,19 @@ impl OutboxRepository {
 
         sqlx::query(sql)
             .bind(outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>())
-            .execute(&resources.postgres_pool)
+            .execute(&app_state.postgres_pool)
             .await
-            .map_err(|error| AppError::new(&error.to_string(), "Failed to mark outboxes as processed"))?;
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to mark outboxes as processed"))?;
 
-        Self::unlock_partition_key(resources, outboxes).await?;
+        Self::unlock_partition_key(app_state, outboxes).await?;
 
         Ok(())
     }
 
     pub async fn delete_processed(
-        resources: &OutboxProcessorResources,
+        app_state: &AppState,
         outboxes: &[Outbox],
-    ) -> Result<(), AppError> {
+    ) -> Result<(), OutboxPatternProcessorError> {
         let sql = r#"
         delete from outbox
         where idempotent_key = ANY($1)
@@ -105,19 +79,19 @@ impl OutboxRepository {
 
         sqlx::query(sql)
             .bind(outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>())
-            .execute(&resources.postgres_pool)
+            .execute(&app_state.postgres_pool)
             .await
-            .map_err(|error| AppError::new(&error.to_string(), "Failed to delete processed outboxes"))?;
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to delete processed outboxes"))?;
 
-        Self::unlock_partition_key(resources, outboxes).await?;
+        Self::unlock_partition_key(app_state, outboxes).await?;
 
         Ok(())
     }
 
     async fn unlock_partition_key(
-        resources: &OutboxProcessorResources,
+        app_state: &AppState,
         outboxes: &[Outbox],
-    ) -> Result<(), AppError> {
+    ) -> Result<(), OutboxPatternProcessorError> {
         let sql = r#"
         update outbox
         set processing_until = now()
@@ -126,9 +100,9 @@ impl OutboxRepository {
 
         sqlx::query(sql)
             .bind(outboxes.iter().map(|it| it.partition_key).collect::<Vec<Uuid>>())
-            .execute(&resources.postgres_pool)
+            .execute(&app_state.postgres_pool)
             .await
-            .map_err(|error| AppError::new(&error.to_string(), "Failed to delete processed outboxes"))?;
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to delete processed outboxes"))?;
 
         Ok(())
     }

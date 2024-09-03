@@ -1,6 +1,6 @@
-use crate::domain::destination::http_destination::HttpDestination;
-use crate::domain::destination::sns_destination::SnsDestination;
-use crate::domain::destination::sqs_destination::SqsDestination;
+use crate::http_destination::HttpDestination;
+use crate::sns_destination::SnsDestination;
+use crate::sqs_destination::SqsDestination;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

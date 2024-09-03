@@ -1,7 +1,7 @@
-use crate::domain::notification::NotificationResult;
-use crate::domain::outbox::{GroupedOutboxed, Outbox};
-use crate::infra::error::AppError;
-use crate::outbox_processor::OutboxProcessorResources;
+use crate::app_state::AppState;
+use crate::error::OutboxPatternProcessorError;
+use crate::notification::NotificationResult;
+use crate::outbox::{GroupedOutboxed, Outbox};
 use aws_sdk_sqs::error::ProvideErrorMetadata;
 use aws_sdk_sqs::types::{MessageAttributeValue, SendMessageBatchRequestEntry};
 use tracing::log::error;
@@ -10,9 +10,9 @@ pub struct SnsNotificationService;
 
 impl SnsNotificationService {
     pub async fn send(
-        resources: &OutboxProcessorResources,
+        app_state: &AppState,
         outboxes: &GroupedOutboxed,
-    ) -> Result<NotificationResult, AppError> {
+    ) -> Result<NotificationResult, OutboxPatternProcessorError> {
         let mut notification_result = NotificationResult::default();
 
         for (queue_url, topic_outboxes) in outboxes.sqs.clone() {
@@ -57,7 +57,7 @@ impl SnsNotificationService {
                     }
 
                     let entry = entry_builder.build().map_err(|error| {
-                        AppError::new(
+                        OutboxPatternProcessorError::new(
                             &error.to_string(),
                             &format!("Failed to create batch entry for outbox idempotent_key={}", outbox.idempotent_key),
                         )
@@ -67,7 +67,7 @@ impl SnsNotificationService {
                     entries.push(entry);
                 }
 
-                let publish_result = resources
+                let publish_result = app_state
                     .sqs_client
                     .client
                     .send_message_batch()
@@ -88,7 +88,7 @@ impl SnsNotificationService {
                             })
                             .unwrap_or(String::from("Unknown"));
 
-                        AppError::new(&body, error.message().unwrap_or("Failed to publish sqs batch"));
+                        OutboxPatternProcessorError::new(&body, error.message().unwrap_or("Failed to publish sqs batch"));
                     });
 
                 if publish_result.is_ok() {
@@ -106,9 +106,9 @@ impl SnsNotificationService {
 fn attribute_value(
     outbox: &Outbox,
     value: &str,
-) -> Result<MessageAttributeValue, AppError> {
+) -> Result<MessageAttributeValue, OutboxPatternProcessorError> {
     MessageAttributeValue::builder().data_type("String").string_value(value).build().map_err(|error| {
-        AppError::new(
+        OutboxPatternProcessorError::new(
             &error.to_string(),
             &format!(
                 "Failed to create message attribute with value={} for outbox idempotent_key={}",

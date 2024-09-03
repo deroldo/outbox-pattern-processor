@@ -1,18 +1,18 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_sns::operation::create_topic::CreateTopicOutput;
 use aws_sdk_sqs::operation::create_queue::CreateQueueOutput;
-use outbox_pattern_processor::domain::destination::http_destination::HttpDestination;
-use outbox_pattern_processor::domain::destination::outbox_destination::OutboxDestination;
-use outbox_pattern_processor::domain::destination::sns_destination::SnsDestination;
-use outbox_pattern_processor::domain::destination::sqs_destination::SqsDestination;
-use outbox_pattern_processor::domain::outbox::Outbox;
-use outbox_pattern_processor::infra::aws::{SnsClient, SqsClient};
-use outbox_pattern_processor::infra::database::Database;
-use outbox_pattern_processor::infra::http_gateway::HttpGateway;
+use outbox_pattern_processor::aws::{SnsClient, SqsClient};
+use outbox_pattern_processor::http_destination::HttpDestination;
+use outbox_pattern_processor::outbox::Outbox;
+use outbox_pattern_processor::outbox_destination::OutboxDestination;
 use outbox_pattern_processor::outbox_processor::OutboxProcessorResources;
+use outbox_pattern_processor::sns_destination::SnsDestination;
+use outbox_pattern_processor::sqs_destination::SqsDestination;
 use rand::Rng;
 use serde_json::{json, Value};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::types::Json;
+use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::env;
 use std::net::{SocketAddr, TcpListener};
@@ -39,19 +39,21 @@ impl AsyncTestContext for TestContext {
 
         let mock_server = Infrastructure::init_mock_server().await;
 
-        let db_config = Database::from_env();
-        let postgres_pool = db_config.create_db_pool().await.unwrap();
+        let postgres_pool = Infrastructure::init_database().await;
 
         let aws_config = aws_config::load_defaults(BehaviorVersion::latest()).await;
         let sqs_client = SqsClient::new(&aws_config).await;
         let sns_client = SnsClient::new(&aws_config).await;
-        let http_gateway = HttpGateway::new(1000).unwrap();
 
         let resources = OutboxProcessorResources {
             postgres_pool,
             sqs_client,
             sns_client,
-            http_gateway,
+            http_timeout: None,
+            outbox_query_limit: None,
+            outbox_execution_interval_in_seconds: None,
+            delete_after_process_successfully: None,
+            max_in_flight_interval_in_seconds: None,
         };
 
         let gateway_uri = mock_server.uri();
@@ -71,6 +73,24 @@ impl AsyncTestContext for TestContext {
 pub struct Infrastructure;
 
 impl Infrastructure {
+    async fn init_database() -> Pool<Postgres> {
+        PgPoolOptions::new()
+            .min_connections(1)
+            .max_connections(10)
+            .test_before_acquire(true)
+            .connect_with(
+                PgConnectOptions::new()
+                    .host("localhost")
+                    .database("local")
+                    .username("local")
+                    .password("local")
+                    .port(5432)
+                    .application_name("outbox-pattern-processor"),
+            )
+            .await
+            .unwrap()
+    }
+
     async fn init_sqs(resources: &OutboxProcessorResources) -> CreateQueueOutput {
         resources.sqs_client.client.create_queue().queue_name("queue").send().await.unwrap()
     }

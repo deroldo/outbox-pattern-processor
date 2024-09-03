@@ -1,11 +1,11 @@
-use outbox_pattern_processor::infra::environment::Environment;
+use outbox_pattern_processor::environment::Environment;
 use outbox_pattern_processor::outbox_processor::{OutboxProcessor, OutboxProcessorResources};
+use outbox_pattern_processor::shutdown::Shutdown;
 use outbox_pattern_processor_worker::routes::Routes;
 use outbox_pattern_processor_worker::state::AppState;
 use std::env;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
-use tokio::signal;
 use tracing::log::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -51,7 +51,7 @@ async fn init_http_server(
 
     if let Ok(listener) = TcpListener::bind(addr).await {
         info!("Running http server...");
-        let _ = axum::serve(listener, routes).with_graceful_shutdown(shutdown_signal("Stopping http server...")).await;
+        let _ = axum::serve(listener, routes).with_graceful_shutdown(Shutdown::signal("Stopping http server...")).await;
     }
 
     wait_group.done();
@@ -67,30 +67,17 @@ async fn init_outbox(
         postgres_pool: app_state.postgres_pool.clone(),
         sqs_client: app_state.sqs_client.clone(),
         sns_client: app_state.sns_client.clone(),
-        http_gateway: app_state.http_gateway.clone(),
+        http_timeout: None,
+        outbox_query_limit: None,
+        outbox_execution_interval_in_seconds: None,
+        delete_after_process_successfully: None,
+        max_in_flight_interval_in_seconds: None,
     };
 
-    OutboxProcessor::init(outbox_processor_resources, shutdown_signal("Stopping outbox processor...")).await;
+    let _ = OutboxProcessor::new(outbox_processor_resources)
+        .with_graceful_shutdown(Shutdown::signal("Stopping outbox processor..."))
+        .init()
+        .await;
 
     wait_group.done();
-}
-
-async fn shutdown_signal(message: &str) {
-    let ctrl_c = async {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-    };
-
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("Failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
-
-    info!("{message}");
 }

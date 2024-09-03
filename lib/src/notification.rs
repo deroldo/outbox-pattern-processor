@@ -1,4 +1,4 @@
-use crate::domain::outbox::Outbox;
+use crate::outbox::Outbox;
 
 #[derive(Clone, Default)]
 pub struct NotificationResult {
