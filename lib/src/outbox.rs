@@ -23,6 +23,23 @@ pub struct Outbox {
 }
 
 impl Outbox {
+    pub fn start_delay(
+        &self,
+        process_after: DateTime<Utc>,
+    ) -> Self {
+        Outbox {
+            idempotent_key: self.idempotent_key,
+            partition_key: self.partition_key,
+            destinations: self.destinations.clone(),
+            headers: self.headers.clone(),
+            payload: self.payload.clone(),
+            attempts: self.attempts,
+            created_at: self.created_at,
+            processing_until: Some(process_after),
+            processed_at: self.processed_at,
+        }
+    }
+
     pub fn http_post_json(
         partition_key: Uuid,
         url: &str,
