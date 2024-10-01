@@ -46,7 +46,7 @@ impl Outbox {
         headers: Option<HashMap<String, String>>,
         payload: &Value,
     ) -> Self {
-        Self::http(partition_key, url, headers, &payload.to_string(), None)
+        Self::http(partition_key, url, headers, vec![], &payload.to_string(), None)
     }
 
     pub fn http_put_json(
@@ -55,7 +55,7 @@ impl Outbox {
         headers: Option<HashMap<String, String>>,
         payload: &Value,
     ) -> Self {
-        Self::http(partition_key, url, headers, &payload.to_string(), Some("put".to_string()))
+        Self::http(partition_key, url, headers, vec![], &payload.to_string(), Some("put".to_string()))
     }
 
     pub fn http_patch_json(
@@ -64,7 +64,7 @@ impl Outbox {
         headers: Option<HashMap<String, String>>,
         payload: &Value,
     ) -> Self {
-        Self::http(partition_key, url, headers, &payload.to_string(), Some("patch".to_string()))
+        Self::http(partition_key, url, headers, vec![], &payload.to_string(), Some("patch".to_string()))
     }
 
     pub fn sqs(
@@ -89,29 +89,51 @@ impl Outbox {
         Self::new(partition_key, destinations, headers, payload)
     }
 
+    pub fn http_and_sns(
+        partition_key: Uuid,
+        url: &str,
+        topic_arn: &str,
+        headers: Option<HashMap<String, String>>,
+        payload: &Value,
+    ) -> Self {
+        let destinations = vec![OutboxDestination::SnsDestination(SnsDestination { topic_arn: topic_arn.to_string() })];
+        Self::http(partition_key, url, headers, destinations, &payload.to_string(), None)
+    }
+
+    pub fn http_and_sqs(
+        partition_key: Uuid,
+        url: &str,
+        queue_url: &str,
+        headers: Option<HashMap<String, String>>,
+        payload: &Value,
+    ) -> Self {
+        let destinations = vec![OutboxDestination::SqsDestination(SqsDestination { queue_url: queue_url.to_string() })];
+        Self::http(partition_key, url, headers, destinations, &payload.to_string(), None)
+    }
+
     fn http(
         partition_key: Uuid,
         url: &str,
         headers: Option<HashMap<String, String>>,
+        destinations: Vec<OutboxDestination>,
         payload: &str,
         method: Option<String>,
     ) -> Self {
         let mut extended_headers = headers.unwrap_or_default();
         extended_headers.extend(HashMap::from([("Content-Type".to_string(), "application/json".to_string())]));
 
-        Self::new(
-            partition_key,
-            vec![OutboxDestination::HttpDestination(HttpDestination {
-                url: url.to_string(),
-                headers: Some(extended_headers),
-                method,
-            })],
-            None,
-            payload,
-        )
+        let mut all_destinations = vec![];
+        all_destinations.extend(destinations);
+        all_destinations.push(OutboxDestination::HttpDestination(HttpDestination {
+            url: url.to_string(),
+            headers: Some(extended_headers),
+            method,
+        }));
+
+        Self::new(partition_key, all_destinations, None, payload)
     }
 
-    fn new(
+    pub fn new(
         partition_key: Uuid,
         destinations: Vec<OutboxDestination>,
         headers: Option<HashMap<String, String>>,
