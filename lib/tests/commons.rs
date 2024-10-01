@@ -294,12 +294,9 @@ impl DefaultData {
         sqlx::query_as(sql).fetch_all(&ctx.resources.postgres_pool).await.unwrap()
     }
 
-    pub async fn clear(ctx: &mut TestContext) -> Vec<Outbox> {
-        let sql = r#"
-        delete from outbox
-        "#;
-
-        sqlx::query_as(sql).fetch_all(&ctx.resources.postgres_pool).await.unwrap()
+    pub async fn clear(ctx: &mut TestContext) {
+        let _ = sqlx::query("delete from outbox").execute(&ctx.resources.postgres_pool).await;
+        let _ = sqlx::query("delete from outbox_lock").execute(&ctx.resources.postgres_pool).await;
     }
 }
 

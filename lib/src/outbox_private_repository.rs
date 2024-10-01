@@ -7,39 +7,48 @@ use uuid::Uuid;
 
 impl OutboxRepository {
     pub async fn list(app_state: &AppState) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
+        let lock_id = Uuid::now_v7();
+
         let processing_until_incremente_interval = format!("{} seconds", app_state.max_in_flight_interval_in_seconds.unwrap_or(30));
 
-        let sql = r#"
-        with locked as (
-            update outbox o1
-            set processing_until = now() + ($2)::interval
-            from (
-                select partition_key
-                from outbox o3
-                where o3.processed_at is null and o3.processing_until < now() and attempts < $3
-                group by o3.partition_key
-                order by min(o3.created_at)
-                limit $1
-            ) as o2
-            where o1.partition_key = o2.partition_key and o1.processed_at is null and o1.processing_until < now() and attempts < $3
-            returning o1.idempotent_key
-        ),
-        to_process as (
-            select
-                outbox.idempotent_key,
-                row_number() over (partition by outbox.partition_key order by outbox.created_at asc) as rnk
+        let sql_lock = r#"
+        insert into outbox_lock
+        (
+            select partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
             from outbox
-            inner join locked on locked.idempotent_key = outbox.idempotent_key
-            where outbox.processed_at is null
+            where processed_at is null and attempts < $4
+            group by partition_key
+            order by min(created_at)
+            limit $2
         )
-        select outbox.*
-        from outbox
-        inner join to_process on to_process.idempotent_key = outbox.idempotent_key and to_process.rnk = 1
+        ON CONFLICT DO NOTHING
         "#;
 
-        sqlx::query_as(sql)
+        sqlx::query(sql_lock)
+            .bind(lock_id)
             .bind(app_state.outbox_query_limit.unwrap_or(50) as i32)
             .bind(processing_until_incremente_interval)
+            .bind(app_state.outbox_failure_limit.unwrap_or(10) as i32)
+            .execute(&app_state.postgres_pool)
+            .await
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to lock outboxes"))?;
+
+        let sql_list = r#"
+        with locked as (
+            select
+                o.idempotent_key,
+                row_number() over (partition by o.partition_key order by o.created_at asc) as rnk
+            from outbox o
+            inner join outbox_lock ol on o.partition_key = ol.partition_key and o.processed_at is null and o.attempts < $2
+            where ol.lock_id = $1
+        )
+        select o.*
+        from outbox o
+        inner join locked l on o.idempotent_key = l.idempotent_key and l.rnk = 1
+        "#;
+
+        sqlx::query_as(sql_list)
+            .bind(lock_id)
             .bind(app_state.outbox_failure_limit.unwrap_or(10) as i32)
             .fetch_all(&app_state.postgres_pool)
             .await
@@ -57,8 +66,11 @@ impl OutboxRepository {
         where idempotent_key = ANY($1)
         "#;
 
+        let mut ids_to_update = outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>();
+        ids_to_update.push(Uuid::now_v7());
+
         sqlx::query(sql)
-            .bind(outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>())
+            .bind(ids_to_update)
             .execute(&mut **transaction)
             .await
             .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to mark outboxes as processed"))?;
@@ -77,32 +89,16 @@ impl OutboxRepository {
         where idempotent_key = ANY($1)
         "#;
 
+        let mut ids_to_delete = outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>();
+        ids_to_delete.push(Uuid::now_v7());
+
         sqlx::query(sql)
-            .bind(outboxes.iter().map(|it| it.idempotent_key).collect::<Vec<Uuid>>())
+            .bind(ids_to_delete)
             .execute(&mut **transaction)
             .await
             .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to delete processed outboxes"))?;
 
         Self::unlock_partition_key(transaction, outboxes).await?;
-
-        Ok(())
-    }
-
-    async fn unlock_partition_key(
-        transaction: &mut Transaction<'_, Postgres>,
-        outboxes: &[Outbox],
-    ) -> Result<(), OutboxPatternProcessorError> {
-        let sql = r#"
-        update outbox
-        set processing_until = now()
-        where partition_key = ANY($1) and processed_at is null
-        "#;
-
-        sqlx::query(sql)
-            .bind(outboxes.iter().map(|it| it.partition_key).collect::<Vec<Uuid>>())
-            .execute(&mut **transaction)
-            .await
-            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to unlock partition keys"))?;
 
         Ok(())
     }
@@ -122,6 +118,29 @@ impl OutboxRepository {
             .execute(&mut **transaction)
             .await
             .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to increase attempts"))?;
+
+        Self::unlock_partition_key(transaction, outboxes).await?;
+
+        Ok(())
+    }
+
+    async fn unlock_partition_key(
+        transaction: &mut Transaction<'_, Postgres>,
+        outboxes: &[Outbox],
+    ) -> Result<(), OutboxPatternProcessorError> {
+        let sql = r#"
+        delete from outbox_lock
+        where partition_key = ANY($1) or processing_until < now()
+        "#;
+
+        let mut ids_to_delete = outboxes.iter().map(|it| it.partition_key).collect::<Vec<Uuid>>();
+        ids_to_delete.push(Uuid::now_v7());
+
+        sqlx::query(sql)
+            .bind(ids_to_delete)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to unlock partition keys"))?;
 
         Ok(())
     }

@@ -12,8 +12,6 @@ mod test {
     use serial_test::serial;
     use std::collections::HashMap;
     use std::env;
-    use std::thread::sleep;
-    use std::time::Duration;
     use test_context::test_context;
 
     #[test_context(TestContext)]
@@ -151,8 +149,7 @@ mod test {
 
         let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone())
             .with_outbox_query_limit(1)
-            .with_outbox_failure_limit(2)
-            .with_max_in_flight_interval_in_seconds(1);
+            .with_outbox_failure_limit(2);
 
         let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -161,7 +158,6 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
 
         let _ = OutboxProcessor::one_shot(&custom_resources).await;
-        sleep(Duration::from_millis(1200));
         let _ = OutboxProcessor::one_shot(&custom_resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
@@ -186,8 +182,7 @@ mod test {
 
         let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone())
             .with_outbox_query_limit(1)
-            .with_outbox_failure_limit(2)
-            .with_max_in_flight_interval_in_seconds(1);
+            .with_outbox_failure_limit(2);
 
         let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
         let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
@@ -196,9 +191,7 @@ mod test {
         HttpGatewayMock::default_mock(ctx, &outbox_2).await;
 
         let _ = OutboxProcessor::one_shot(&custom_resources).await;
-        sleep(Duration::from_millis(1200));
         let _ = OutboxProcessor::one_shot(&custom_resources).await;
-        sleep(Duration::from_millis(1200));
         let _ = OutboxProcessor::one_shot(&custom_resources).await;
 
         let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
