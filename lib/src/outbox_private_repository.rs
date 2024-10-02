@@ -14,11 +14,12 @@ impl OutboxRepository {
         let sql_lock = r#"
         insert into outbox_lock
         (
-            select partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
-            from outbox
-            where processed_at is null and attempts < $4
-            group by partition_key
-            order by min(created_at)
+            select o.partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
+            from outbox o
+            left join outbox_lock ol on o.partition_key = ol.partition_key
+            where ol.partition_key is null and o.processed_at is null and o.attempts < $4
+            group by o.partition_key
+            order by min(o.created_at)
             limit $2
         )
         ON CONFLICT DO NOTHING

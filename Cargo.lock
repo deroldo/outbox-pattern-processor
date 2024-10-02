@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "outbox-pattern-processor"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-sdk-sns",

@@ -43,10 +43,17 @@ impl OutboxProcessor {
             loop {
                 tokio::select! {
                     result = OutboxProcessor::one_shot(&self.resources) => {
-                        if let Err(error) = result {
-                            error!("Outbox processor failed with error: {}", error.to_string());
+                        match result {
+                            Ok(processed_len) => {
+                                if processed_len == 0 {
+                                    tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
+                                }
+                            }
+                            Err(error) => {
+                                error!("Outbox processor failed with error: {}", error.to_string());
+                                tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
+                            }
                         }
-                        tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
                     }
                     _ = &mut shutdown_signal => {
                         break;
@@ -55,13 +62,17 @@ impl OutboxProcessor {
             }
         } else {
             loop {
-                tokio::select! {
-                    result = OutboxProcessor::one_shot(&self.resources) => {
-                        if let Err(error) = result {
-                            error!("Outbox processor failed with error: {}", error.to_string());
+                let result = OutboxProcessor::one_shot(&self.resources).await;
+                match result {
+                    Ok(processed_len) => {
+                        if processed_len == 0 {
+                            tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
                         }
+                    },
+                    Err(error) => {
+                        error!("Outbox processor failed with error: {}", error.to_string());
                         tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
-                    }
+                    },
                 }
             }
         }
@@ -71,7 +82,7 @@ impl OutboxProcessor {
         Ok(())
     }
 
-    pub async fn one_shot(resources: &OutboxProcessorResources) -> Result<(), OutboxPatternProcessorError> {
+    pub async fn one_shot(resources: &OutboxProcessorResources) -> Result<usize, OutboxPatternProcessorError> {
         let app_state = AppState {
             postgres_pool: resources.postgres_pool.clone(),
             sqs_client: resources.sqs_client.clone(),
@@ -84,6 +95,7 @@ impl OutboxProcessor {
         };
 
         let outboxes = OutboxRepository::list(&app_state).await?;
+        let outboxes_len = outboxes.len();
 
         let grouped_outboxes = Self::group_by_destination(outboxes.clone());
 
@@ -115,7 +127,7 @@ impl OutboxProcessor {
 
         app_state.commit_transaction(transaction).await?;
 
-        Ok(())
+        Ok(outboxes_len)
     }
 
     fn group_by_destination(outboxes: Vec<Outbox>) -> GroupedOutboxed {
