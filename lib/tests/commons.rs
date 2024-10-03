@@ -29,6 +29,7 @@ pub struct TestContext {
     pub gateway_uri: String,
     pub queue_url: String,
     pub topic_arn: String,
+    pub postgres_pool: Pool<Postgres>,
 }
 
 impl AsyncTestContext for TestContext {
@@ -46,7 +47,7 @@ impl AsyncTestContext for TestContext {
         let sqs_client = SqsClient::new(&aws_config).await;
         let sns_client = SnsClient::new(&aws_config).await;
 
-        let resources = OutboxProcessorResources::new(postgres_pool, Some(sqs_client), Some(sns_client));
+        let resources = OutboxProcessorResources::new(postgres_pool.clone(), Some(sqs_client), Some(sns_client));
 
         let gateway_uri = mock_server.uri();
         let queue_url = Infrastructure::init_sqs(&resources).await.queue_url.unwrap();
@@ -58,6 +59,7 @@ impl AsyncTestContext for TestContext {
             gateway_uri,
             queue_url,
             topic_arn,
+            postgres_pool,
         }
     }
 }

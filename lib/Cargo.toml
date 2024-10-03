@@ -1,6 +1,6 @@
 [package]
 name = "outbox-pattern-processor"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = [
     "Diogo Deroldo <diogoderoldo@gmail.com>"

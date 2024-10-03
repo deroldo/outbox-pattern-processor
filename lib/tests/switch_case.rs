@@ -4,17 +4,21 @@ mod commons;
 mod test {
     use crate::commons::{DefaultData, HttpGatewayMock, TestContext};
     use outbox_pattern_processor::http_destination::HttpDestination;
+    use outbox_pattern_processor::outbox::Outbox;
     use outbox_pattern_processor::outbox_destination::OutboxDestination;
     use outbox_pattern_processor::outbox_processor::OutboxProcessor;
+    use outbox_pattern_processor::outbox_repository::OutboxRepository;
     use outbox_pattern_processor::outbox_resources::OutboxProcessorResources;
     use outbox_pattern_processor::sns_destination::SnsDestination;
     use outbox_pattern_processor::sqs_destination::SqsDestination;
+    use serde_json::json;
     use serial_test::serial;
     use sqlx::types::chrono::Utc;
     use std::collections::HashMap;
     use std::env;
     use std::time::Duration;
     use test_context::test_context;
+    use uuid::Uuid;
 
     #[test_context(TestContext)]
     #[serial]
@@ -716,6 +720,40 @@ mod test {
 
         let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
         assert!(stored_outbox_2.processed_at.is_some());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_when_persisted_by_repository(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let mut transaction = ctx.postgres_pool.begin().await.unwrap();
+
+        let outbox_1 = Outbox::http_post_json(Uuid::now_v7(), &format!("{}/success", ctx.gateway_uri), None, &json!({"foo": "bar"})).delay(Utc::now() + Duration::from_secs(10));
+        let stored_outbox_1 = OutboxRepository::insert(&mut transaction, outbox_1).await.unwrap();
+
+        let outbox_2 = Outbox::http_post_json(Uuid::now_v7(), &format!("{}/success", ctx.gateway_uri), None, &json!({"foo": "bar"}));
+        let stored_outbox_2 = OutboxRepository::insert(&mut transaction, outbox_2).await.unwrap();
+
+        transaction.commit().await.unwrap();
+
+        HttpGatewayMock::default_mock(ctx, &stored_outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &stored_outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(2, stored_outboxes.len());
+
+        let updated_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == stored_outbox_1.idempotent_key).unwrap();
+        assert!(updated_outbox_1.processed_at.is_none());
+        assert_eq!(0, updated_outbox_1.attempts);
+
+        let updated_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == stored_outbox_2.idempotent_key).unwrap();
+        assert!(updated_outbox_2.processed_at.is_some());
 
         Ok(())
     }
