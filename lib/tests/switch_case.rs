@@ -10,8 +10,10 @@ mod test {
     use outbox_pattern_processor::sns_destination::SnsDestination;
     use outbox_pattern_processor::sqs_destination::SqsDestination;
     use serial_test::serial;
+    use sqlx::types::chrono::Utc;
     use std::collections::HashMap;
     use std::env;
+    use std::time::Duration;
     use test_context::test_context;
 
     #[test_context(TestContext)]
@@ -448,6 +450,7 @@ mod test {
             ],
             None,
             None,
+            None,
         )
         .await;
 
@@ -483,6 +486,7 @@ mod test {
                 OutboxDestination::SqsDestination(SqsDestination { queue_url: ctx.queue_url.clone() }),
                 OutboxDestination::SnsDestination(SnsDestination { topic_arn: ctx.topic_arn.clone() }),
             ],
+            None,
             None,
             None,
         )
@@ -524,6 +528,7 @@ mod test {
             ],
             None,
             None,
+            None,
         )
         .await;
 
@@ -561,6 +566,7 @@ mod test {
                     topic_arn: "invalid::arn".to_string(),
                 }),
             ],
+            None,
             None,
             None,
         )
@@ -683,6 +689,33 @@ mod test {
 
         let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox.idempotent_key).unwrap();
         assert!(stored_outbox_1.processed_at.is_some());
+
+        Ok(())
+    }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_process_ignoring_scheduled_processes(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let outbox_1 = DefaultData::create_default_scheduled(ctx, Utc::now() + Duration::from_secs(10)).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        let _ = OutboxProcessor::one_shot(&ctx.resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(2, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_none());
+        assert_eq!(0, stored_outbox_1.attempts);
+
+        let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
+        assert!(stored_outbox_2.processed_at.is_some());
 
         Ok(())
     }

@@ -17,9 +17,9 @@ impl OutboxRepository {
             select o.partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
             from outbox o
             left join outbox_lock ol on o.partition_key = ol.partition_key
-            where ol.partition_key is null and o.processed_at is null and o.attempts < $4
+            where ol.partition_key is null and o.processed_at is null and o.process_after < now() and o.attempts < $4
             group by o.partition_key
-            order by min(o.created_at)
+            order by min(o.process_after)
             limit $2
         )
         ON CONFLICT DO NOTHING
@@ -38,9 +38,9 @@ impl OutboxRepository {
         with locked as (
             select
                 o.idempotent_key,
-                row_number() over (partition by o.partition_key order by o.created_at asc) as rnk
+                row_number() over (partition by o.partition_key order by o.process_after asc) as rnk
             from outbox o
-            inner join outbox_lock ol on o.partition_key = ol.partition_key and o.processed_at is null and o.attempts < $2
+            inner join outbox_lock ol on o.partition_key = ol.partition_key and o.process_after < now() and o.processed_at is null and o.attempts < $2
             where ol.lock_id = $1
         )
         select o.*

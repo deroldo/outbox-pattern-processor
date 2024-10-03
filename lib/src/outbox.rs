@@ -18,12 +18,12 @@ pub struct Outbox {
     pub payload: String,
     pub attempts: i32,
     pub created_at: DateTime<Utc>,
-    pub processing_until: Option<DateTime<Utc>>,
+    pub process_after: Option<DateTime<Utc>>,
     pub processed_at: Option<DateTime<Utc>>,
 }
 
 impl Outbox {
-    pub fn start_delay(
+    pub fn delay(
         &self,
         process_after: DateTime<Utc>,
     ) -> Self {
@@ -35,7 +35,7 @@ impl Outbox {
             payload: self.payload.clone(),
             attempts: self.attempts,
             created_at: self.created_at,
-            processing_until: Some(process_after),
+            process_after: Some(process_after),
             processed_at: self.processed_at,
         }
     }
@@ -147,7 +147,7 @@ impl Outbox {
             payload: payload.to_string(),
             attempts: 0,
             created_at: Utc::now(),
-            processing_until: None,
+            process_after: None,
             processed_at: None,
         }
     }

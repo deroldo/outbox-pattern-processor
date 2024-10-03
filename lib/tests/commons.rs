@@ -11,6 +11,7 @@ use outbox_pattern_processor::sqs_destination::SqsDestination;
 use rand::Rng;
 use serde_json::{json, Value};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
@@ -118,6 +119,27 @@ impl DefaultData {
             })],
             None,
             None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn create_default_scheduled(
+        ctx: &mut TestContext,
+        process_after: DateTime<Utc>,
+    ) -> Outbox {
+        Self::create_outbox(
+            ctx,
+            None,
+            None,
+            vec![OutboxDestination::HttpDestination(HttpDestination {
+                url: format!("{}/success", ctx.gateway_uri),
+                headers: None,
+                method: None,
+            })],
+            None,
+            None,
+            Some(process_after),
         )
         .await
     }
@@ -132,6 +154,7 @@ impl DefaultData {
                 headers: None,
                 method: None,
             })],
+            None,
             None,
             None,
         )
@@ -153,6 +176,7 @@ impl DefaultData {
             })],
             None,
             None,
+            None,
         )
         .await
     }
@@ -170,6 +194,7 @@ impl DefaultData {
                 headers: None,
                 method: Some(method.to_string()),
             })],
+            None,
             None,
             None,
         )
@@ -192,6 +217,7 @@ impl DefaultData {
             })],
             Some(outbox_headers_map),
             None,
+            None,
         )
         .await
     }
@@ -202,6 +228,7 @@ impl DefaultData {
             None,
             None,
             vec![OutboxDestination::SqsDestination(SqsDestination { queue_url: ctx.queue_url.clone() })],
+            None,
             None,
             None,
         )
@@ -218,6 +245,7 @@ impl DefaultData {
             })],
             None,
             None,
+            None,
         )
         .await
     }
@@ -228,6 +256,7 @@ impl DefaultData {
             None,
             None,
             vec![OutboxDestination::SnsDestination(SnsDestination { topic_arn: ctx.topic_arn.clone() })],
+            None,
             None,
             None,
         )
@@ -244,6 +273,7 @@ impl DefaultData {
             })],
             None,
             None,
+            None,
         )
         .await
     }
@@ -255,24 +285,46 @@ impl DefaultData {
         destinations: Vec<OutboxDestination>,
         headers: Option<HashMap<String, String>>,
         payload: Option<String>,
+        process_after: Option<DateTime<Utc>>,
     ) -> Outbox {
-        let sql = r#"
-        insert into outbox
-            (idempotent_key, partition_key, destinations, headers, payload)
-        values
-            ($1, $2, $3, $4, $5)
-        returning *
-        "#;
+        if let Some(date_to_process) = process_after {
+            let sql = r#"
+            insert into outbox
+                (idempotent_key, partition_key, destinations, headers, payload, process_after)
+            values
+                ($1, $2, $3, $4, $5, $6)
+            returning *
+            "#;
 
-        sqlx::query_as(sql)
-            .bind(idempotent_key.unwrap_or(Uuid::now_v7()))
-            .bind(partition_key.unwrap_or(Uuid::now_v7()))
-            .bind(Json(destinations))
-            .bind(headers.map(|it| Some(Json(it))))
-            .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
-            .fetch_one(&ctx.resources.postgres_pool)
-            .await
-            .unwrap()
+            sqlx::query_as(sql)
+                .bind(idempotent_key.unwrap_or(Uuid::now_v7()))
+                .bind(partition_key.unwrap_or(Uuid::now_v7()))
+                .bind(Json(destinations))
+                .bind(headers.map(|it| Some(Json(it))))
+                .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
+                .bind(date_to_process)
+                .fetch_one(&ctx.resources.postgres_pool)
+                .await
+                .unwrap()
+        } else {
+            let sql = r#"
+            insert into outbox
+                (idempotent_key, partition_key, destinations, headers, payload)
+            values
+                ($1, $2, $3, $4, $5)
+            returning *
+            "#;
+
+            sqlx::query_as(sql)
+                .bind(idempotent_key.unwrap_or(Uuid::now_v7()))
+                .bind(partition_key.unwrap_or(Uuid::now_v7()))
+                .bind(Json(destinations))
+                .bind(headers.map(|it| Some(Json(it))))
+                .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
+                .fetch_one(&ctx.resources.postgres_pool)
+                .await
+                .unwrap()
+        }
     }
 
     pub async fn find_all_outboxes(ctx: &mut TestContext) -> Vec<Outbox> {
