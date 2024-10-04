@@ -18,6 +18,10 @@ Library to make easier to dispatch your outbox-pattern data from database to SQS
 
 To use as docker image, see more [here](../worker/README.md)
 
+> [!TIP]
+> All events, HTTP, SNS or SQS, always include the header or message-attribute called `x-idempotent-key`.
+> It can be used to avoid consume duplicated events.
+
 ### Persisting outbox event data
 
 ##### Rust
