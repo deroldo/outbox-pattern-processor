@@ -42,14 +42,14 @@ create table outbox_lock
 
 #### Required indexes
 ```sql
-create index index_outbox_by_partition_key on outbox (partition_key);
-create index index_outbox_by_process_after on outbox (process_after);
-create index index_outbox_by_processed_at on outbox (processed_at);
-create index index_outbox_by_processed_at_and_attempts on outbox (processed_at, attempts);
-create index index_outbox_by_partition_key_and_process_after on outbox (partition_key, process_after);
+create index idx_outbox_by_partition_key on outbox (partition_key);
+create index idx_outbox_by_process_after on outbox (process_after);
+create index idx_outbox_by_processed_at on outbox (processed_at);
+create index idx_outbox_by_partition_key_and_process_after on outbox (partition_key, process_after);
+create index idx_outbox_by_process_after_and_attempts_and_processed_at_null on outbox (process_after, attempts) where processed_at is null;
 
-create index index_outbox_lock_by_lock_id on outbox_lock (lock_id);
-create index index_outbox_lock_by_processing_until on outbox_lock (processing_until);
+create index idx_outbox_lock_by_lock_id on outbox_lock (lock_id);
+create index idx_outbox_lock_by_processing_until on outbox_lock (processing_until);
 ```
 
 ### Columns details
