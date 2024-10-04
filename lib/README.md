@@ -58,6 +58,12 @@ let payload = "any data"; // can also be a JSON stringified
 let outbox = Outbox::sqs(partition_key, url, headers, &payload);
 ```
 
+###### Any outbox kind with delay
+```rust
+let outbox = Outbox::http_post_json(partition_key, url, headers, &payload) // or any other, like sqs and sns
+    .delay(Utc::now() + Duration::from_secs(10));
+```
+
 ###### Persisting
 
 ```rust
