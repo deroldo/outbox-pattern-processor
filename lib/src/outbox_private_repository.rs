@@ -7,41 +7,52 @@ use uuid::Uuid;
 
 impl OutboxRepository {
     pub async fn list(app_state: &AppState) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
-        let sql_list = r#"with locked_partition_key as (
-    insert into outbox_lock
-    (
-        select o.partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
-        from outbox o
-             left join outbox_lock ol on o.partition_key = ol.partition_key
-        where ol.partition_key is null and o.processed_at is null and o.process_after < now() and o.attempts < $4
-        group by o.partition_key
-        order by min(o.process_after)
-        limit $2
-    )
-    ON CONFLICT DO NOTHING
-    RETURNING *
-),
-locked as (
+        let lock_id = Uuid::now_v7();
+
+        let processing_until_incremente_interval = format!("{} seconds", app_state.max_in_flight_interval_in_seconds.unwrap_or(30));
+
+        let sql_lock = r#"insert into outbox_lock
+(
+    select o.partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
+    from outbox o
+    left join outbox_lock ol on o.partition_key = ol.partition_key
+    where ol.partition_key is null
+        and o.processed_at is null
+        and o.process_after < now()
+        and o.attempts < $4
+    group by o.partition_key
+    order by min(o.process_after)
+    limit $2
+)
+ON CONFLICT DO NOTHING"#;
+
+        sqlx::query(sql_lock)
+            .bind(lock_id)
+            .bind(app_state.outbox_query_limit.unwrap_or(50) as i32)
+            .bind(processing_until_incremente_interval)
+            .bind(app_state.outbox_failure_limit.unwrap_or(10) as i32)
+            .execute(&app_state.postgres_pool)
+            .await
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to lock outboxes"))?;
+
+        let sql_list = r#"with locked as (
     select
         o.idempotent_key,
         row_number() over (partition by o.partition_key order by o.process_after asc) as rnk
     from outbox o
-         inner join locked_partition_key lpk on o.partition_key = lpk.partition_key
+    inner join outbox_lock ol on o.partition_key = ol.partition_key
     where o.process_after < now()
         and o.processed_at is null
-        and o.attempts < $4
+        and o.attempts < $2
+        and ol.lock_id = $1
 )
 select o.*
 from outbox o
-     inner join locked l on o.idempotent_key = l.idempotent_key and l.rnk = 1;"#;
-
-        let lock_id = Uuid::now_v7();
-        let processing_until_incremente_interval = format!("{} seconds", app_state.max_in_flight_interval_in_seconds.unwrap_or(30));
+inner join locked l on o.idempotent_key = l.idempotent_key
+where l.rnk = 1"#;
 
         sqlx::query_as(sql_list)
             .bind(lock_id)
-            .bind(app_state.outbox_query_limit.unwrap_or(50) as i32)
-            .bind(processing_until_incremente_interval)
             .bind(app_state.outbox_failure_limit.unwrap_or(10) as i32)
             .fetch_all(&app_state.postgres_pool)
             .await
