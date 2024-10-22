@@ -11,7 +11,7 @@ use tracing::log::error;
 pub struct SnsNotificationService;
 
 impl SnsNotificationService {
-    #[instrument(skip_all, name = "send-to-sns")]
+    #[instrument(skip_all, name = "send_to_sns")]
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,

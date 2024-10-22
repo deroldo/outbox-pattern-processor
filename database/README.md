@@ -35,8 +35,14 @@ create table outbox_lock
 (
     partition_key    uuid        not null,
     lock_id          uuid        not null,
-    processing_until timestamptz not null default now() + ('30 seconds')::interval,
-    primary key (partition_key)
+    processed_at     timestamptz,
+    processing_until timestamptz not null default now() + ('30 seconds')::interval
+);
+
+create table outbox_cleaner_schedule
+(
+    cron_expression varchar(50) not null,
+    last_execution timestamptz not null default now()
 );
 ```
 
@@ -46,13 +52,15 @@ create index idx_outbox_by_partition_key on outbox (partition_key);
 create index idx_outbox_by_process_after on outbox (process_after);
 create index idx_outbox_by_processed_at on outbox (processed_at);
 create index idx_outbox_by_partition_key_and_process_after on outbox (partition_key, process_after);
-create index idx_outbox_by_process_after_and_attempts_and_processed_at_null on outbox (process_after, attempts) where processed_at is null;
+create index idx_outbox_by_part_key_and_proc_after_and_attempt_and_proc_at on outbox (partition_key, process_after, attempts) where processed_at is null;
 
+create unique index unq_outbox_lock_by_partition_key on outbox_lock (partition_key) where processed_at is null;
 create index idx_outbox_lock_by_lock_id on outbox_lock (lock_id);
-create index idx_outbox_lock_by_processing_until on outbox_lock (processing_until);
+create index idx_outbox_lock_by_processing_until on outbox_lock (processing_until) where processed_at is null;
+create index idx_outbox_lock_by_processed_at on outbox_lock (processed_at);
 ```
 
-### Columns details
+### Tabla outbox - columns details
 
 #### idempotent_key
 
@@ -157,6 +165,14 @@ HTTP
 - Outbox event content
 
 ###### Example: `Some message, it can be a stringify JSON too`
+
+### Tabla outbox_cleaner_schedule - columns details
+
+#### cron_expression
+
+- Outbox cleaner cron expression
+
+###### Example: `0 0 */3 * * *` -- every 3 hours
 
 
 ## License

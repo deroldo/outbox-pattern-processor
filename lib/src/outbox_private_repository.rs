@@ -8,11 +8,51 @@ use tracing::instrument;
 use uuid::Uuid;
 
 impl OutboxRepository {
-    #[instrument(skip_all)]
+    #[instrument(skip_all, name = "lock_and_get_outboxes")]
     pub async fn list(app_state: &AppState) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
         let lock_id = Uuid::now_v7();
         let processing_until_incremente_interval = format!("{} seconds", app_state.max_in_flight_interval_in_seconds.unwrap_or(30));
 
+        Self::lock_partition_key(&app_state, lock_id, processing_until_incremente_interval).await?;
+
+        Self::get_outboxes_ranked_from_locked_partition_key(&app_state, lock_id).await
+    }
+
+    #[instrument(skip_all)]
+    async fn get_outboxes_ranked_from_locked_partition_key(
+        app_state: &&AppState,
+        lock_id: Uuid,
+    ) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
+        let sql_list = r#"with locked as (
+    select
+        o.idempotent_key,
+        row_number() over (partition by o.partition_key order by o.process_after asc) as rnk
+    from outbox o
+    inner join outbox_lock ol on o.partition_key = ol.partition_key
+    where o.process_after < now()
+        and o.processed_at is null
+        and o.attempts < $2
+        and ol.lock_id = $1
+)
+select o.*
+from outbox o
+inner join locked l on o.idempotent_key = l.idempotent_key
+where l.rnk = 1"#;
+
+        sqlx::query_as(sql_list)
+            .bind(lock_id)
+            .bind(app_state.outbox_failure_limit.unwrap_or(10) as i32)
+            .fetch_all(&app_state.postgres_pool)
+            .await
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to list outboxes"))
+    }
+
+    #[instrument(skip_all)]
+    async fn lock_partition_key(
+        app_state: &&AppState,
+        lock_id: Uuid,
+        processing_until_incremente_interval: String,
+    ) -> Result<(), OutboxPatternProcessorError> {
         let sql_lock = r#"insert into outbox_lock (partition_key, lock_id, processing_until)
 (
     select o.partition_key, $1 as lock_id, now() + ($3)::interval as processing_until
@@ -36,29 +76,7 @@ ON CONFLICT DO NOTHING"#;
             .execute(&app_state.postgres_pool)
             .await
             .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to lock outboxes"))?;
-
-        let sql_list = r#"with locked as (
-    select
-        o.idempotent_key,
-        row_number() over (partition by o.partition_key order by o.process_after asc) as rnk
-    from outbox o
-    inner join outbox_lock ol on o.partition_key = ol.partition_key
-    where o.process_after < now()
-        and o.processed_at is null
-        and o.attempts < $2
-        and ol.lock_id = $1
-)
-select o.*
-from outbox o
-inner join locked l on o.idempotent_key = l.idempotent_key
-where l.rnk = 1"#;
-
-        sqlx::query_as(sql_list)
-            .bind(lock_id)
-            .bind(app_state.outbox_failure_limit.unwrap_or(10) as i32)
-            .fetch_all(&app_state.postgres_pool)
-            .await
-            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to list outboxes"))
+        Ok(())
     }
 
     #[instrument(skip_all)]

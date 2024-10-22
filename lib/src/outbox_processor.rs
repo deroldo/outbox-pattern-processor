@@ -132,6 +132,7 @@ impl OutboxProcessor {
         })
     }
 
+    #[instrument(skip_all, name = "outbox-pattern-processor-cleaner")]
     pub async fn one_shot_processed_locked_cleaner(resources: &OutboxProcessorResources) -> Result<(), OutboxPatternProcessorError> {
         let app_state = Self::create_app_state(resources)?;
 
@@ -153,7 +154,7 @@ impl OutboxProcessor {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, name = "outbox-pattern-processor")]
     pub async fn one_shot_process(resources: &OutboxProcessorResources) -> Result<usize, OutboxPatternProcessorError> {
         let app_state = Self::create_app_state(resources)?;
 

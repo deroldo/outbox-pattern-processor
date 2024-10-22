@@ -30,9 +30,10 @@ create unique index unq_outbox_lock_by_partition_key on outbox_lock (partition_k
 create index idx_outbox_lock_by_lock_id on outbox_lock (lock_id);
 create index idx_outbox_lock_by_processing_until on outbox_lock (processing_until) where processed_at is null;
 create index idx_outbox_lock_by_processed_at on outbox_lock (processed_at);
+create index idx_outbox_by_partition_key_and_processing_until on outbox_lock (partition_key, processing_until);
 
 create table outbox_cleaner_schedule
 (
     cron_expression varchar(50) not null,
     last_execution timestamptz not null default now()
-)
+);

@@ -11,7 +11,7 @@ use tracing::log::error;
 pub struct SqsNotificationService;
 
 impl SqsNotificationService {
-    #[instrument(skip_all, name = "send-to-sqs")]
+    #[instrument(skip_all, name = "send_to_sqs")]
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,

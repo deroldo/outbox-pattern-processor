@@ -11,7 +11,7 @@ use tracing::log::error;
 pub struct HttpNotificationService;
 
 impl HttpNotificationService {
-    #[instrument(skip_all, name = "send-to-http")]
+    #[instrument(skip_all, name = "send_to_http")]
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,
