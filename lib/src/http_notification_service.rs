@@ -5,11 +5,13 @@ use crate::notification::NotificationResult;
 use crate::outbox_destination::OutboxDestination;
 use crate::outbox_group::GroupedOutboxed;
 use regex::Regex;
+use tracing::instrument;
 use tracing::log::error;
 
 pub struct HttpNotificationService;
 
 impl HttpNotificationService {
+    #[instrument(skip_all, name = "send-to-http")]
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,

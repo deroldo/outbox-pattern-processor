@@ -17,6 +17,7 @@ use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::env;
 use std::net::{SocketAddr, TcpListener};
+use std::time::Duration;
 use test_context::AsyncTestContext;
 use uuid::Uuid;
 use wiremock::matchers::{body_json_string, header, method, path};
@@ -348,9 +349,79 @@ impl DefaultData {
         sqlx::query_as(sql).fetch_all(&ctx.resources.postgres_pool).await.unwrap()
     }
 
+    pub async fn create_lock(
+        ctx: &mut TestContext,
+        processed: bool,
+    ) {
+        let processed_at = if processed { "now()" } else { "null" };
+
+        let sql = format!(
+            "insert into outbox_lock (partition_key, lock_id, processing_until, processed_at) values ('{}', '{}', now(), {})",
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            processed_at
+        );
+
+        let _ = sqlx::query(&sql).execute(&ctx.postgres_pool).await;
+    }
+
+    pub async fn create_cleaner_schedule(
+        ctx: &mut TestContext,
+        cron: &str,
+    ) {
+        let last_execution = Utc::now() - Duration::from_secs(2);
+        let sql = "insert into outbox_cleaner_schedule (cron_expression, last_execution) values ($1, $2)";
+        let _ = sqlx::query(&sql).bind(cron).bind(last_execution).execute(&ctx.postgres_pool).await;
+    }
+
+    pub async fn count_locks(ctx: &mut TestContext) -> i64 {
+        let sql = r#"
+        select count(1)
+        from outbox_lock
+        "#;
+
+        let result = sqlx::query_scalar(sql).fetch_one(&ctx.postgres_pool).await;
+
+        match result {
+            Ok(Some(count)) => count,
+            Ok(None) | Err(_) => 0,
+        }
+    }
+
+    pub async fn count_processed_locks(ctx: &mut TestContext) -> i64 {
+        let sql = r#"
+        select count(1)
+        from outbox_lock
+        where processed_at is not null
+        "#;
+
+        let result = sqlx::query_scalar(sql).fetch_one(&ctx.postgres_pool).await;
+
+        match result {
+            Ok(Some(count)) => count,
+            Ok(None) | Err(_) => 0,
+        }
+    }
+
+    pub async fn count_not_processed_locks(ctx: &mut TestContext) -> i64 {
+        let sql = r#"
+        select count(1)
+        from outbox_lock
+        where processed_at is null
+        "#;
+
+        let result = sqlx::query_scalar(sql).fetch_one(&ctx.postgres_pool).await;
+
+        match result {
+            Ok(Some(count)) => count,
+            Ok(None) | Err(_) => 0,
+        }
+    }
+
     pub async fn clear(ctx: &mut TestContext) {
         let _ = sqlx::query("delete from outbox").execute(&ctx.resources.postgres_pool).await;
         let _ = sqlx::query("delete from outbox_lock").execute(&ctx.resources.postgres_pool).await;
+        let _ = sqlx::query("delete from outbox_cleaner_schedule").execute(&ctx.resources.postgres_pool).await;
     }
 }
 

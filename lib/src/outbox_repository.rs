@@ -1,10 +1,12 @@
 use crate::error::OutboxPatternProcessorError;
 use crate::outbox::Outbox;
 use sqlx::{Postgres, Transaction};
+use tracing::instrument;
 
 pub struct OutboxRepository;
 
 impl OutboxRepository {
+    #[instrument(skip_all)]
     pub async fn insert(
         transaction: &mut Transaction<'_, Postgres>,
         outbox: Outbox,

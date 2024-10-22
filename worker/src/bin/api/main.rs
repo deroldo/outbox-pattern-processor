@@ -40,7 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sns_client = SnsClient::new(&aws_config).await;
 
     tokio::spawn(init_http_server(wait_group.add(1)));
-    tokio::spawn(init_outbox(postgres_pool, sqs_client, sns_client, wait_group.add(1)));
+    tokio::spawn(init_outbox(postgres_pool.clone(), sqs_client.clone(), sns_client.clone(), wait_group.add(1)));
+    tokio::spawn(init_outbox_lock_cleaner(postgres_pool, sqs_client, sns_client, wait_group.add(1)));
 
     wait_group.wait();
 
@@ -75,7 +76,23 @@ async fn init_outbox(
 
     let _ = OutboxProcessor::new(outbox_processor_resources)
         .with_graceful_shutdown(Shutdown::signal("Stopping outbox processor..."))
-        .init()
+        .init_process()
+        .await;
+
+    wait_group.done();
+}
+
+async fn init_outbox_lock_cleaner(
+    postgres_pool: Pool<Postgres>,
+    sqs_client: SqsClient,
+    sns_client: SnsClient,
+    wait_group: WaitGroup,
+) {
+    let outbox_processor_resources = OutboxProcessorResources::new(postgres_pool, Some(sqs_client), Some(sns_client));
+
+    let _ = OutboxProcessor::new(outbox_processor_resources)
+        .with_graceful_shutdown(Shutdown::signal("Stopping outbox cleaner processor..."))
+        .init_processed_locked_cleaner()
         .await;
 
     wait_group.done();

@@ -9,6 +9,7 @@ pub mod http_gateway;
 mod http_notification_service;
 mod notification;
 pub mod outbox;
+mod outbox_cleaner_schedule;
 pub mod outbox_destination;
 mod outbox_group;
 mod outbox_private_repository;

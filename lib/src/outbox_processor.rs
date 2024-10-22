@@ -9,8 +9,12 @@ use crate::outbox_repository::OutboxRepository;
 use crate::outbox_resources::OutboxProcessorResources;
 use crate::sns_notification_service::SnsNotificationService;
 use crate::sqs_notification_service::SqsNotificationService;
+use cron::Schedule;
+use sqlx::types::chrono::Utc;
 use std::future::Future;
+use std::str::FromStr;
 use std::time::Duration;
+use tracing::instrument;
 use tracing::log::{error, info};
 
 pub struct OutboxProcessor {
@@ -33,7 +37,7 @@ impl OutboxProcessor {
         }
     }
 
-    pub async fn init(self) -> Result<(), OutboxPatternProcessorError> {
+    pub async fn init_process(self) -> Result<(), OutboxPatternProcessorError> {
         info!("Starting outbox processor...");
 
         if let Some(box_signal) = self.signal {
@@ -42,7 +46,7 @@ impl OutboxProcessor {
             info!("Running outbox processor...");
             loop {
                 tokio::select! {
-                    result = OutboxProcessor::one_shot(&self.resources) => {
+                    result = OutboxProcessor::one_shot_process(&self.resources) => {
                         match result {
                             Ok(processed_len) => {
                                 if processed_len == 0 {
@@ -62,7 +66,7 @@ impl OutboxProcessor {
             }
         } else {
             loop {
-                let result = OutboxProcessor::one_shot(&self.resources).await;
+                let result = OutboxProcessor::one_shot_process(&self.resources).await;
                 match result {
                     Ok(processed_len) => {
                         if processed_len == 0 {
@@ -82,8 +86,40 @@ impl OutboxProcessor {
         Ok(())
     }
 
-    pub async fn one_shot(resources: &OutboxProcessorResources) -> Result<usize, OutboxPatternProcessorError> {
-        let app_state = AppState {
+    pub async fn init_processed_locked_cleaner(self) -> Result<(), OutboxPatternProcessorError> {
+        info!("Starting outbox cleaner processor...");
+
+        if let Some(box_signal) = self.signal {
+            let mut shutdown_signal = Box::into_pin(box_signal);
+
+            loop {
+                tokio::select! {
+                    _ = OutboxProcessor::one_shot_processed_locked_cleaner(&self.resources) => {
+                        tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
+                    }
+                    _ = &mut shutdown_signal => {
+                        break;
+                    }
+                }
+            }
+        } else {
+            loop {
+                let result = OutboxProcessor::one_shot_processed_locked_cleaner(&self.resources).await;
+                if result.is_err() {
+                    let error = result.expect_err("Failed to get expected error");
+                    error!("Outbox processor cleaner failed with error: {}", error.to_string());
+                }
+                tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
+            }
+        }
+
+        info!("Outbox processor cleaner stopped!");
+
+        Ok(())
+    }
+
+    fn create_app_state(resources: &OutboxProcessorResources) -> Result<AppState, OutboxPatternProcessorError> {
+        Ok(AppState {
             postgres_pool: resources.postgres_pool.clone(),
             sqs_client: resources.sqs_client.clone(),
             sns_client: resources.sns_client.clone(),
@@ -92,7 +128,34 @@ impl OutboxProcessor {
             delete_after_process_successfully: resources.delete_after_process_successfully,
             max_in_flight_interval_in_seconds: resources.max_in_flight_interval_in_seconds,
             outbox_failure_limit: resources.outbox_failure_limit,
-        };
+            scheduled_clear_locked_partition: resources.scheduled_clear_locked_partition,
+        })
+    }
+
+    pub async fn one_shot_processed_locked_cleaner(resources: &OutboxProcessorResources) -> Result<(), OutboxPatternProcessorError> {
+        let app_state = Self::create_app_state(resources)?;
+
+        let mut transaction = app_state.begin_transaction().await?;
+
+        if let Some(outbox_clear_schedule) = OutboxRepository::find_cleaner_schedule(&mut transaction).await? {
+            if let Ok(schedule) = Schedule::from_str(&outbox_clear_schedule.cron_expression) {
+                if let Some(next_execution) = schedule.after(&outbox_clear_schedule.last_execution).next() {
+                    let seconds_until_next_execution = (next_execution - Utc::now()).num_seconds();
+                    if seconds_until_next_execution <= 0 {
+                        OutboxRepository::clear_processed_locked_partition_key(&mut transaction).await?;
+                        OutboxRepository::update_last_cleaner_execution(&mut transaction).await?;
+                        app_state.commit_transaction(transaction).await?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn one_shot_process(resources: &OutboxProcessorResources) -> Result<usize, OutboxPatternProcessorError> {
+        let app_state = Self::create_app_state(resources)?;
 
         let outboxes = OutboxRepository::list(&app_state).await?;
         let outboxes_len = outboxes.len();
@@ -116,13 +179,13 @@ impl OutboxProcessor {
         let mut transaction = app_state.begin_transaction().await?;
 
         if app_state.delete_after_process_successfully.unwrap_or(false) {
-            OutboxRepository::delete_processed(&mut transaction, &successfully_outboxes).await?;
+            OutboxRepository::delete_processed(&app_state, &mut transaction, &successfully_outboxes).await?;
         } else {
-            OutboxRepository::mark_as_processed(&mut transaction, &successfully_outboxes).await?;
+            OutboxRepository::mark_as_processed(&app_state, &mut transaction, &successfully_outboxes).await?;
         }
 
         if !failure_outbox.is_empty() {
-            OutboxRepository::increase_attempts(&mut transaction, &failure_outbox).await?;
+            OutboxRepository::increase_attempts(&app_state, &mut transaction, &failure_outbox).await?;
         }
 
         app_state.commit_transaction(transaction).await?;
@@ -130,6 +193,7 @@ impl OutboxProcessor {
         Ok(outboxes_len)
     }
 
+    #[instrument(skip_all)]
     fn group_by_destination(outboxes: Vec<Outbox>) -> GroupedOutboxed {
         let mut grouped_outboxes = GroupedOutboxed::default();
 

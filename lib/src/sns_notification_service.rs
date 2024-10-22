@@ -5,11 +5,13 @@ use crate::outbox::Outbox;
 use crate::outbox_group::GroupedOutboxed;
 use aws_sdk_sns::error::ProvideErrorMetadata;
 use aws_sdk_sns::types::{MessageAttributeValue, PublishBatchRequestEntry};
+use tracing::instrument;
 use tracing::log::error;
 
 pub struct SnsNotificationService;
 
 impl SnsNotificationService {
+    #[instrument(skip_all, name = "send-to-sns")]
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,

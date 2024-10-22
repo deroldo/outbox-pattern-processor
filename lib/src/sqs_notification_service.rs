@@ -5,11 +5,13 @@ use crate::outbox::Outbox;
 use crate::outbox_group::GroupedOutboxed;
 use aws_sdk_sqs::error::ProvideErrorMetadata;
 use aws_sdk_sqs::types::{MessageAttributeValue, SendMessageBatchRequestEntry};
+use tracing::instrument;
 use tracing::log::error;
 
 pub struct SqsNotificationService;
 
 impl SqsNotificationService {
+    #[instrument(skip_all, name = "send-to-sqs")]
     pub async fn send(
         app_state: &AppState,
         outboxes: &GroupedOutboxed,

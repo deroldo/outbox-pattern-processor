@@ -37,6 +37,8 @@ sqlx = { version = "0.8.2", features = ["runtime-tokio-rustls", "postgres", "chr
 uuid = { version = "1.10.0", features = ["v4", "v7", "serde"] }
 regex = { version = "1.11.0" }
 
+cron = { version = "0.12.1" }
+
 [dev-dependencies]
 rand = { version = "0.8.5" }
 serial_test = { version = "3.1.1" }
