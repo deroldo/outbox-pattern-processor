@@ -148,16 +148,31 @@ ON CONFLICT DO NOTHING"#;
         transaction: &mut Transaction<'_, Postgres>,
         outboxes: &[Outbox],
     ) -> Result<(), OutboxPatternProcessorError> {
-        let sql = if app_state.scheduled_clear_locked_partition.unwrap_or(false) {
-            "update outbox_lock set processed_at = now() where (partition_key = ANY($1) or processing_until < now()) and processed_at is null"
+        let sql_unlock_by_partition_key = if app_state.scheduled_clear_locked_partition.unwrap_or(false) {
+            "update outbox_lock set processed_at = now() where partition_key = ANY($1) and processed_at is null"
         } else {
-            "delete from outbox_lock where (partition_key = ANY($1) or processing_until < now()) and processed_at is null"
+            "delete from outbox_lock where partition_key = ANY($1) and processed_at is null"
         };
 
         let mut ids_to_delete = outboxes.iter().map(|it| it.partition_key).collect::<Vec<Uuid>>();
         ids_to_delete.push(Uuid::now_v7());
 
-        sqlx::query(sql)
+        sqlx::query(sql_unlock_by_partition_key)
+            .bind(ids_to_delete)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to unlock partition keys"))?;
+
+        let sql_unlock_by_processing_until = if app_state.scheduled_clear_locked_partition.unwrap_or(false) {
+            "update outbox_lock set processed_at = now() where processing_until < now()"
+        } else {
+            "delete from outbox_lock where processing_until < now()"
+        };
+
+        let mut ids_to_delete = outboxes.iter().map(|it| it.partition_key).collect::<Vec<Uuid>>();
+        ids_to_delete.push(Uuid::now_v7());
+
+        sqlx::query(sql_unlock_by_processing_until)
             .bind(ids_to_delete)
             .execute(&mut **transaction)
             .await
