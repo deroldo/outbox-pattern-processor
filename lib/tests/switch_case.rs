@@ -841,10 +841,11 @@ mod test {
         let mut transaction = ctx.postgres_pool.begin().await.unwrap();
 
         let outbox_1 = Outbox::http_post_json(Uuid::now_v7(), &format!("{}/success", ctx.gateway_uri), None, &json!({"foo": "bar"})).delay(Utc::now() + Duration::from_secs(10));
-        let stored_outbox_1 = OutboxRepository::insert(&mut transaction, outbox_1).await.unwrap();
-
         let outbox_2 = Outbox::http_post_json(Uuid::now_v7(), &format!("{}/success", ctx.gateway_uri), None, &json!({"foo": "bar"}));
-        let stored_outbox_2 = OutboxRepository::insert(&mut transaction, outbox_2).await.unwrap();
+        let outboxes = OutboxRepository::insert_all(&mut transaction, vec![outbox_1.clone(), outbox_2.clone()]).await?;
+
+        let stored_outbox_1 = outboxes.iter().find(|outbox| outbox.idempotent_key == outbox_1.idempotent_key).unwrap();
+        let stored_outbox_2 = outboxes.iter().find(|outbox| outbox.idempotent_key == outbox_2.idempotent_key).unwrap();
 
         transaction.commit().await.unwrap();
 

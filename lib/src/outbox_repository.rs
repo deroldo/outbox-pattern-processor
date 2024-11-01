@@ -11,43 +11,45 @@ impl OutboxRepository {
         transaction: &mut Transaction<'_, Postgres>,
         outbox: Outbox,
     ) -> Result<Outbox, OutboxPatternProcessorError> {
-        if let Some(process_after) = outbox.process_after {
-            let sql = r#"
-            insert into outbox
-                (idempotent_key, partition_key, destinations, headers, payload, process_after)
-            values
-                ($1, $2, $3, $4, $5, $6)
-            returning *
-            "#;
+        let outboxes = Self::insert_all(transaction, vec![outbox]).await?;
+        Ok(outboxes[0].clone())
+    }
 
-            sqlx::query_as(sql)
-                .bind(outbox.idempotent_key)
-                .bind(outbox.partition_key)
-                .bind(outbox.destinations)
-                .bind(outbox.headers)
-                .bind(outbox.payload)
-                .bind(process_after)
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), &format!("Failed to insert over partition_key={}", outbox.partition_key)))
-        } else {
-            let sql = r#"
-            insert into outbox
-                (idempotent_key, partition_key, destinations, headers, payload)
-            values
-                ($1, $2, $3, $4, $5)
-            returning *
-            "#;
-
-            sqlx::query_as(sql)
-                .bind(outbox.idempotent_key)
-                .bind(outbox.partition_key)
-                .bind(outbox.destinations)
-                .bind(outbox.headers)
-                .bind(outbox.payload)
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), &format!("Failed to insert over partition_key={}", outbox.partition_key)))
+    pub async fn insert_all(
+        transaction: &mut Transaction<'_, Postgres>,
+        outboxes: Vec<Outbox>,
+    ) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
+        if outboxes.is_empty() {
+            return Ok(vec![]);
         }
+
+        let sql = r#"
+            INSERT INTO outbox
+                (idempotent_key, partition_key, destinations, headers, payload, created_at, process_after)
+        "#;
+
+        let mut query_builder = sqlx::QueryBuilder::new(sql);
+
+        query_builder.push_values(outboxes.clone(), |mut b, outbox: Outbox| {
+            b.push_bind(outbox.idempotent_key)
+                .push_bind(outbox.partition_key)
+                .push_bind(outbox.destinations)
+                .push_bind(outbox.headers)
+                .push_bind(outbox.payload)
+                .push_bind(outbox.created_at)
+                .push_bind(outbox.process_after.unwrap_or(outbox.created_at));
+        });
+
+        query_builder.build().execute(&mut **transaction).await.map_err(|error| {
+            OutboxPatternProcessorError::new(
+                &error.to_string(),
+                &format!(
+                    "Failed to insert outboxes to partition_keys={}",
+                    outboxes.iter().map(|it| it.partition_key.to_string()).collect::<Vec<_>>().join(", ")
+                ),
+            )
+        })?;
+
+        Ok(outboxes)
     }
 }
