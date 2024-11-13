@@ -290,44 +290,24 @@ impl DefaultData {
         payload: Option<String>,
         process_after: Option<DateTime<Utc>>,
     ) -> Outbox {
-        if let Some(date_to_process) = process_after {
-            let sql = r#"
-            insert into outbox
-                (idempotent_key, partition_key, destinations, headers, payload, process_after)
-            values
-                ($1, $2, $3, $4, $5, $6)
-            returning *
-            "#;
+        let sql = r#"
+        insert into outbox
+            (idempotent_key, partition_key, destinations, headers, payload, process_after)
+        values
+            ($1, $2, $3, $4, $5, $6)
+        returning *
+        "#;
 
-            sqlx::query_as(sql)
-                .bind(idempotent_key.unwrap_or(Uuid::now_v7()))
-                .bind(partition_key.unwrap_or(Uuid::now_v7()))
-                .bind(Json(destinations))
-                .bind(headers.map(|it| Some(Json(it))))
-                .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
-                .bind(date_to_process)
-                .fetch_one(&ctx.resources.postgres_pool)
-                .await
-                .unwrap()
-        } else {
-            let sql = r#"
-            insert into outbox
-                (idempotent_key, partition_key, destinations, headers, payload)
-            values
-                ($1, $2, $3, $4, $5)
-            returning *
-            "#;
-
-            sqlx::query_as(sql)
-                .bind(idempotent_key.unwrap_or(Uuid::now_v7()))
-                .bind(partition_key.unwrap_or(Uuid::now_v7()))
-                .bind(Json(destinations))
-                .bind(headers.map(|it| Some(Json(it))))
-                .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
-                .fetch_one(&ctx.resources.postgres_pool)
-                .await
-                .unwrap()
-        }
+        sqlx::query_as(sql)
+            .bind(idempotent_key.unwrap_or(Uuid::now_v7()))
+            .bind(partition_key.unwrap_or(Uuid::now_v7()))
+            .bind(Json(destinations))
+            .bind(headers.map(|it| Some(Json(it))))
+            .bind(payload.unwrap_or(json!({"foo":"bar"}).to_string()))
+            .bind(process_after.unwrap_or(Utc::now()))
+            .fetch_one(&ctx.resources.postgres_pool)
+            .await
+            .unwrap()
     }
 
     pub async fn find_all_outboxes(ctx: &mut TestContext) -> Vec<Outbox> {

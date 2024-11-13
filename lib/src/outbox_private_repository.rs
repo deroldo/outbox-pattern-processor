@@ -3,7 +3,9 @@ use crate::error::OutboxPatternProcessorError;
 use crate::outbox::Outbox;
 use crate::outbox_cleaner_schedule::OutboxCleanerSchedule;
 use crate::outbox_repository::OutboxRepository;
+use sqlx::types::chrono::Utc;
 use sqlx::{Postgres, Transaction};
+use std::time::Duration;
 use tracing::instrument;
 use uuid::Uuid;
 
@@ -129,6 +131,19 @@ ON CONFLICT DO NOTHING"#;
         transaction: &mut Transaction<'_, Postgres>,
         outboxes: &[Outbox],
     ) -> Result<(), OutboxPatternProcessorError> {
+        if let Some(delay) = app_state.delay_for_failure_attempt_in_seconds {
+            if delay > 0 {
+                let sql = "update outbox set process_after = $2 where partition_key = ANY($1) and processed_at is null";
+
+                sqlx::query(sql)
+                    .bind(outboxes.iter().map(|it| it.partition_key).collect::<Vec<Uuid>>())
+                    .bind(Utc::now() + Duration::from_secs(delay))
+                    .execute(&mut **transaction)
+                    .await
+                    .map_err(|error| OutboxPatternProcessorError::new(&error.to_string(), "Failed to increase attempts"))?;
+            }
+        }
+
         let sql = "update outbox set attempts = attempts + 1 where idempotent_key = ANY($1)";
 
         sqlx::query(sql)

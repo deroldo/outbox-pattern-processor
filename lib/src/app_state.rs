@@ -14,6 +14,7 @@ pub struct AppState {
     pub max_in_flight_interval_in_seconds: Option<u64>,
     pub outbox_failure_limit: Option<u32>,
     pub scheduled_clear_locked_partition: Option<bool>,
+    pub delay_for_failure_attempt_in_seconds: Option<u64>,
 }
 
 impl AppState {

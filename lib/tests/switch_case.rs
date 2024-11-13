@@ -947,4 +947,45 @@ mod test {
 
         Ok(())
     }
+
+    #[test_context(TestContext)]
+    #[serial]
+    #[tokio::test]
+    async fn should_update_process_after_when_it_is_enabled(ctx: &mut TestContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DefaultData::clear(ctx).await;
+
+        let custom_resources = OutboxProcessorResources::new(ctx.resources.postgres_pool.clone(), ctx.resources.sqs_client.clone(), ctx.resources.sns_client.clone())
+            .with_delay_for_failure_attempt_in_seconds(30);
+
+        let outbox_1 = DefaultData::create_default_http_outbox_failed(ctx).await;
+        let outbox_2 = DefaultData::create_default_http_outbox_success(ctx).await;
+        let outbox_3 = DefaultData::create_http_outbox_success_with_partition_key(ctx, outbox_1.partition_key).await;
+
+        HttpGatewayMock::default_mock(ctx, &outbox_1).await;
+        HttpGatewayMock::default_mock(ctx, &outbox_2).await;
+
+        assert!(outbox_1.process_after.unwrap() < Utc::now());
+
+        let _ = OutboxProcessor::one_shot_process(&custom_resources).await;
+        let _ = OutboxProcessor::one_shot_process(&custom_resources).await;
+
+        let stored_outboxes = DefaultData::find_all_outboxes(ctx).await;
+        assert_eq!(3, stored_outboxes.len());
+
+        let stored_outbox_1 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_1.idempotent_key).unwrap();
+        assert!(stored_outbox_1.processed_at.is_none());
+        assert!(stored_outbox_1.process_after.is_some());
+        assert!(stored_outbox_1.process_after.unwrap() > Utc::now());
+        assert_eq!(1, stored_outbox_1.attempts);
+
+        let stored_outbox_2 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_2.idempotent_key).unwrap();
+        assert!(stored_outbox_2.processed_at.is_some());
+        assert_eq!(1, stored_outbox_2.attempts);
+
+        let stored_outbox_3 = stored_outboxes.iter().find(|it| it.idempotent_key == outbox_3.idempotent_key).unwrap();
+        assert!(stored_outbox_3.processed_at.is_none());
+        assert_eq!(0, stored_outbox_3.attempts);
+
+        Ok(())
+    }
 }

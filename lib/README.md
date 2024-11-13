@@ -98,8 +98,11 @@ let custom_resources = OutboxProcessorResources::new(
     .with_http_timeout_in_millis(3000)
     .with_max_in_flight_interval_in_seconds(30)
     .with_outbox_execution_interval_in_seconds(5)
+    .with_delete_after_process_successfully(false)
+    .with_delay_for_failure_attempt_in_seconds(0)
     .with_outbox_failure_limit(10)
-    .with_delete_after_process_successfully(false);
+    .with_scheduled_clear_locked_partition(false)
+    .with_outbox_cleaner_execution_interval_in_seconds(60);
 
 let _ = OutboxProcessor::new(outbox_processor_resources)
         .init()

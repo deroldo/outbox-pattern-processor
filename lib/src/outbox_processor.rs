@@ -95,7 +95,7 @@ impl OutboxProcessor {
             loop {
                 tokio::select! {
                     _ = OutboxProcessor::one_shot_processed_locked_cleaner(&self.resources) => {
-                        tokio::time::sleep(Duration::from_secs(self.resources.outbox_execution_interval_in_seconds.unwrap_or(5))).await;
+                        tokio::time::sleep(Duration::from_secs(self.resources.outbox_cleaner_execution_interval_in_seconds.unwrap_or(60))).await;
                     }
                     _ = &mut shutdown_signal => {
                         break;
@@ -129,6 +129,7 @@ impl OutboxProcessor {
             max_in_flight_interval_in_seconds: resources.max_in_flight_interval_in_seconds,
             outbox_failure_limit: resources.outbox_failure_limit,
             scheduled_clear_locked_partition: resources.scheduled_clear_locked_partition,
+            delay_for_failure_attempt_in_seconds: resources.delay_for_failure_attempt_in_seconds,
         })
     }
 
