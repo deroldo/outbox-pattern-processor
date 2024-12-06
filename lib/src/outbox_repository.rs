@@ -1,6 +1,6 @@
 use crate::error::OutboxPatternProcessorError;
 use crate::outbox::Outbox;
-use sqlx::{Postgres, Transaction};
+use sqlx::PgConnection;
 use tracing::instrument;
 
 pub struct OutboxRepository;
@@ -8,15 +8,15 @@ pub struct OutboxRepository;
 impl OutboxRepository {
     #[instrument(skip_all)]
     pub async fn insert(
-        transaction: &mut Transaction<'_, Postgres>,
+        db_conn: &mut PgConnection,
         outbox: Outbox,
     ) -> Result<Outbox, OutboxPatternProcessorError> {
-        let outboxes = Self::insert_all(transaction, vec![outbox]).await?;
+        let outboxes = Self::insert_all(db_conn, vec![outbox]).await?;
         Ok(outboxes[0].clone())
     }
 
     pub async fn insert_all(
-        transaction: &mut Transaction<'_, Postgres>,
+        db_conn: &mut PgConnection,
         outboxes: Vec<Outbox>,
     ) -> Result<Vec<Outbox>, OutboxPatternProcessorError> {
         if outboxes.is_empty() {
@@ -40,7 +40,7 @@ impl OutboxRepository {
                 .push_bind(outbox.process_after.unwrap_or(outbox.created_at));
         });
 
-        query_builder.build().execute(&mut **transaction).await.map_err(|error| {
+        query_builder.build().execute(&mut *db_conn).await.map_err(|error| {
             OutboxPatternProcessorError::new(
                 &error.to_string(),
                 &format!(
